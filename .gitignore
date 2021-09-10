@@ -18,6 +18,8 @@ logger-files/
 
 exp/
 checkpoints/
+checkpoints
+data
 
 # datasets
 datasets/coco
@@ -30,9 +32,9 @@ datasets/lvissplit
 datasets/*/seed*
 
 # configs
-configs/Test
-configs/*/seed*/*
-configs/*/*/seed*/*
+#configs/Test
+#configs/*/seed*/*
+#configs/*/*/seed*/*
 
 .vscode-upload.json
 .mypy_cache

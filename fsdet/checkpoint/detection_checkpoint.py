@@ -4,7 +4,7 @@ from fvcore.common.file_io import PathManager
 
 import detectron2.utils.comm as comm
 from detectron2.checkpoint.c2_model_loading import align_and_update_state_dicts
-
+ 
 
 class DetectionCheckpointer(Checkpointer):
     """

@@ -16,7 +16,8 @@ from fvcore.nn.precise_bn import get_bn_modules
 from torch.nn.parallel import DistributedDataParallel
 
 import detectron2.data.transforms as T
-from fsdet.checkpoint import DetectionCheckpointer
+#from fsdet.checkpoint import DetectionCheckpointer
+from detectron2.checkpoint import DetectionCheckpointer
 from fsdet.engine.hooks import EvalHookFsdet
 from fsdet.evaluation import (
     DatasetEvaluator,

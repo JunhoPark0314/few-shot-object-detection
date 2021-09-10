@@ -72,7 +72,7 @@ _PREDEFINED_SPLITS_COCO["coco"] = {
 }
 
 
-def register_all_coco(root="datasets"):
+def register_all_coco(root="data"):
     # for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_COCO.items():
     #     for key, (image_root, json_file) in splits_per_dataset.items():
     #         # Assume pre-defined datasets live in `./datasets`.
@@ -149,7 +149,7 @@ _PREDEFINED_SPLITS_LVIS = {
 }
 
 
-def register_all_lvis(root="datasets"):
+def register_all_lvis(root="data"):
     for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_LVIS.items():
         for key, (image_root, json_file) in splits_per_dataset.items():
             # Assume pre-defined datasets live in `./datasets`.
@@ -190,7 +190,7 @@ def register_all_lvis(root="datasets"):
 
 
 # ==== Predefined splits for PASCAL VOC ===========
-def register_all_pascal_voc(root="datasets"):
+def register_all_pascal_voc(root="data"):
     # SPLITS = [
     #     ("voc_2007_trainval", "VOC2007", "trainval"),
     #     ("voc_2007_train", "VOC2007", "train"),
