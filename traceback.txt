@@ -1,0 +1,41 @@
+Traceback (most recent call last):
+  File "/home/sysadmin/.local/lib/python3.8/site-packages/pudb/__init__.py", line 152, in runscript
+    dbg._runscript(mainpyfile)
+  File "/home/sysadmin/.local/lib/python3.8/site-packages/pudb/debugger.py", line 500, in _runscript
+    self.run(statement)
+  File "/usr/lib/python3.8/bdb.py", line 580, in run
+    exec(cmd, globals, locals)
+  File "<string>", line 1, in <module>
+  File "tools/train_net.py", line 153, in <module>
+    launch(
+  File "/home/sysadmin/workspace/FewShotDetection/detectron2/detectron2/engine/launch.py", line 82, in launch
+    main_func(*args)
+  File "tools/train_net.py", line 147, in main
+    return trainer.train()
+  File "/home/sysadmin/workspace/FewShotDetection/fsdet/fsdet/engine/defaults.py", line 799, in train
+    super().train(self.start_iter, self.max_iter)
+  File "/home/sysadmin/workspace/FewShotDetection/detectron2/detectron2/engine/train_loop.py", line 148, in train
+    self.before_step()
+  File "/home/sysadmin/workspace/FewShotDetection/detectron2/detectron2/engine/train_loop.py", line 176, in before_step
+    h.before_step()
+  File "/home/sysadmin/workspace/FewShotDetection/fsdet/fsdet/engine/hooks.py", line 127, in before_step
+    self._update_memory()
+  File "/home/sysadmin/workspace/FewShotDetection/fsdet/fsdet/engine/hooks.py", line 118, in _update_memory
+    feature_dict, _ = self._ema_model(data)
+  File "/home/sysadmin/.local/lib/python3.8/site-packages/torch/nn/modules/module.py", line 889, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/home/sysadmin/workspace/FewShotDetection/fsdet/fsdet/modeling/meta_arch/bank_rcnn.py", line 121, in forward
+    _, detector_losses, roi_feature_dict = self.roi_heads(
+  File "/home/sysadmin/.local/lib/python3.8/site-packages/torch/nn/modules/module.py", line 889, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/home/sysadmin/workspace/FewShotDetection/fsdet/fsdet/modeling/roi_heads/roi_heads.py", line 564, in forward
+    losses, feature_dict = self._forward_box(features_list, proposals, prepare_feature)
+  File "/home/sysadmin/workspace/FewShotDetection/fsdet/fsdet/modeling/roi_heads/roi_heads.py", line 618, in _forward_box
+    return outputs.losses(), feature_dict
+  File "/home/sysadmin/workspace/FewShotDetection/fsdet/fsdet/modeling/roi_heads/fast_rcnn.py", line 300, in losses
+    "loss_box_reg": self.smooth_l1_loss(),
+  File "/home/sysadmin/workspace/FewShotDetection/fsdet/fsdet/modeling/roi_heads/fast_rcnn.py", line 239, in smooth_l1_loss
+    gt_proposal_deltas = self.box2box_transform.get_deltas(
+  File "/home/sysadmin/workspace/FewShotDetection/detectron2/detectron2/modeling/box_regression.py", line 74, in get_deltas
+    assert (src_widths > 0).all().item(), "Input boxes to Box2BoxTransform are not valid!"
+RuntimeError: CUDA error: device-side assert triggered

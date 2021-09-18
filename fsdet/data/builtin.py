@@ -24,6 +24,7 @@ from .builtin_meta import _get_builtin_metadata
 from .meta_coco import register_meta_coco
 from .meta_lvis import register_meta_lvis
 from .meta_pascal_voc import register_meta_pascal_voc
+from .cocolike_voc import register_cocolike_voc_instances
 
 # ==== Predefined datasets and splits for COCO ==========
 
@@ -71,8 +72,28 @@ _PREDEFINED_SPLITS_COCO["coco"] = {
     ),
 }
 
+_PREDEFINED_SPLITS_FEW_VOC=["novel1", "novel2", "novel3"]
+_PREDEFINED_KEEP_CLASSES_VOC=["base", "novel", "base_novel"]
+_PREDEFINED_SPLITS_VOC = {
+    "voc_train_cocolike": (
+        "VOC_WHOLE/train",
+        "VOC_WHOLE/annotations/instances_train.json",
+    ),
+    "voc_val_cocolike": (
+        "VOC_WHOLE/val",
+        "VOC_WHOLE/annotations/instances_val.json",
+    ),
+    "voc_trainval_cocolike": (
+        "VOC_WHOLE/trainval",
+        "VOC_WHOLE/annotations/instances_trainval.json",
+    ),
+    "voc_test_cocolike": (
+        "VOC_WHOLE/test",
+        "VOC_WHOLE/annotations/instances_test.json",
+    ),
+}
 
-def register_all_coco(root="data"):
+def register_all_coco(root="datasets"):
     # for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_COCO.items():
     #     for key, (image_root, json_file) in splits_per_dataset.items():
     #         # Assume pre-defined datasets live in `./datasets`.
@@ -149,7 +170,7 @@ _PREDEFINED_SPLITS_LVIS = {
 }
 
 
-def register_all_lvis(root="data"):
+def register_all_lvis(root="datasets"):
     for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_LVIS.items():
         for key, (image_root, json_file) in splits_per_dataset.items():
             # Assume pre-defined datasets live in `./datasets`.
@@ -190,7 +211,7 @@ def register_all_lvis(root="data"):
 
 
 # ==== Predefined splits for PASCAL VOC ===========
-def register_all_pascal_voc(root="data"):
+def register_all_pascal_voc(root="datasets"):
     # SPLITS = [
     #     ("voc_2007_trainval", "VOC2007", "trainval"),
     #     ("voc_2007_train", "VOC2007", "train"),
@@ -266,8 +287,24 @@ def register_all_pascal_voc(root="data"):
         )
         MetadataCatalog.get(name).evaluator_type = "pascal_voc"
 
+def register_all_cocolike_voc(root="datasets"):
+    for novel_split, _ in enumerate(_PREDEFINED_SPLITS_FEW_VOC):
+        for keepclass in _PREDEFINED_KEEP_CLASSES_VOC:
+            for key, (image_root, json_file) in _PREDEFINED_SPLITS_VOC.items():
+                # Assume pre-defined datasets live in `./datasets`.
+                name = "{key}_{keepclass}{novel_split}".format(key=key, keepclass=keepclass, novel_split=novel_split)
+                register_cocolike_voc_instances(
+                    name,
+                    _get_builtin_metadata("pascal_voc_fewshot"),
+                    novel_split+1,
+                    keepclass,
+                    os.path.join(root, json_file) if "://" not in json_file else json_file,
+                    os.path.join(root, image_root),
+                )
+                MetadataCatalog.get(name).evaluator_type = "coco"
 
 # Register them all under "./datasets"
 register_all_coco()
 register_all_lvis()
 register_all_pascal_voc()
+register_all_cocolike_voc()

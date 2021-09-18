@@ -8,7 +8,6 @@ from detectron2.layers import ShapeSpec
 from detectron2.modeling.backbone.resnet import BottleneckBlock, make_stage
 from detectron2.modeling.box_regression import Box2BoxTransform
 from detectron2.modeling.matcher import Matcher
-from detectron2.modeling.poolers import ROIPooler
 from detectron2.modeling.proposal_generator.proposal_utils import add_ground_truth_to_proposals
 from detectron2.modeling.sampling import subsample_labels
 from detectron2.structures import Boxes, Instances, pairwise_iou
@@ -18,6 +17,7 @@ from typing import Dict
 
 from .box_head import build_box_head
 from .fast_rcnn import ROI_HEADS_OUTPUT_REGISTRY, FastRCNNOutputLayers, FastRCNNOutputs
+from fsdet.modeling.poolers import ROIPooler
 
 ROI_HEADS_REGISTRY = Registry("ROI_HEADS")
 ROI_HEADS_REGISTRY.__doc__ = """
@@ -491,3 +491,137 @@ class StandardROIHeads(ROIHeads):
                 self.test_detections_per_img,
             )
             return pred_instances
+
+@ROI_HEADS_REGISTRY.register()
+class BankROIHeads(ROIHeads):
+    """
+    It's "standard" in a sense that there is no ROI transform sharing
+    or feature sharing between tasks.
+    The cropped rois go to separate branches directly.
+    This way, it is easier to make separate abstractions for different branches.
+
+    This class is used by most models, such as FPN and C5.
+    To implement more models, you can subclass it and implement a different
+    :meth:`forward()` or a head.
+    """
+
+    def __init__(self, cfg, input_shape):
+        super(BankROIHeads, self).__init__(cfg, input_shape)
+        self._init_box_head(cfg)
+
+    def _init_box_head(self, cfg):
+        # fmt: off
+        pooler_resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        pooler_scales     = tuple(1.0 / self.feature_strides[k] for k in self.in_features)
+        sampling_ratio    = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler_type       = cfg.MODEL.ROI_BOX_HEAD.POOLER_TYPE
+        # fmt: on
+
+        # If StandardROIHeads is applied on multiple feature maps (as in FPN),
+        # then we share the same predictors and therefore the channel counts must be the same
+        in_channels = [self.feature_channels[f] for f in self.in_features]
+        # Check all channel counts are equal
+        assert len(set(in_channels)) == 1, in_channels
+        in_channels = in_channels[0]
+
+        self.box_pooler = ROIPooler(
+            output_size=pooler_resolution,
+            scales=pooler_scales,
+            sampling_ratio=sampling_ratio,
+            pooler_type=pooler_type,
+        )
+        # Here we split "box head" and "box predictor", which is mainly due to historical reasons.
+        # They are used together so the "box predictor" layers should be part of the "box head".
+        # New subclasses of ROIHeads do not need "box predictor"s.
+        self.box_head = build_box_head(
+            cfg,
+            ShapeSpec(
+                channels=in_channels,
+                height=pooler_resolution,
+                width=pooler_resolution,
+            ),
+        )
+        output_layer = cfg.MODEL.ROI_HEADS.OUTPUT_LAYER
+        self.box_predictor = ROI_HEADS_OUTPUT_REGISTRY.get(output_layer)(
+            cfg,
+            self.box_head.output_size,
+            self.num_classes,
+            self.cls_agnostic_bbox_reg,
+        )
+
+    def forward(self, images, features, proposals, targets=None, prepare_feature=False):
+        """
+        See :class:`ROIHeads.forward`.
+        """
+        del images
+        if self.training:
+            proposals = self.label_and_sample_proposals(proposals, targets)
+        del targets
+
+        features_list = [features[f] for f in self.in_features]
+
+        if self.training:
+            losses, feature_dict = self._forward_box(features_list, proposals, prepare_feature)
+            return proposals, losses, feature_dict
+        else:
+            pred_instances, feature_dict = self._forward_box(features_list, proposals)
+            return pred_instances, {}, feature_dict
+
+    def _forward_box(self, features, proposals, prepare_feature):
+        """
+        Forward logic of the box prediction branch.
+
+        Args:
+            features (list[Tensor]): #level input features for box prediction
+            proposals (list[Instances]): the per-image object proposals with
+                their matching ground truth.
+                Each has fields "proposal_boxes", and "objectness_logits",
+                "gt_classes", "gt_boxes".
+
+        Returns:
+            In training, a dict of losses.
+            In inference, a list of `Instances`, the predicted instances.
+        """
+        box_features, gt_scale = self.box_pooler(
+            features, [x.proposal_boxes for x in proposals], return_scale=True
+        )
+
+        feature_dict = {}
+
+        if prepare_feature:
+            gt_box_tensor = torch.cat([x.gt_boxes.tensor for x in proposals])
+            proposal_box_tensor = torch.cat([x.proposal_boxes.tensor for x in proposals])
+            gt_prop_deltas = self.box2box_transform.get_deltas(proposal_box_tensor, gt_box_tensor)
+            gt_class = torch.cat([x.gt_classes for x in proposals])
+            
+            feature_dict = {
+                "feature": box_features.detach().clone(),
+                "deltas": gt_prop_deltas,
+                "class": gt_class,
+                "scale": gt_scale,
+            }
+
+        box_features = self.box_head(box_features)
+        pred_class_logits, pred_proposal_deltas = self.box_predictor(
+            box_features
+        )
+        del box_features
+
+        outputs = FastRCNNOutputs(
+            self.box2box_transform,
+            pred_class_logits,
+            pred_proposal_deltas,
+            proposals,
+            self.smooth_l1_beta,
+        )
+        if self.training:
+            if prepare_feature:
+                return {}. feature_dict
+            return outputs.losses(), feature_dict
+        else:
+            pred_instances, _ = outputs.inference(
+                self.test_score_thresh,
+                self.test_nms_thresh,
+                self.test_detections_per_img,
+            )
+            return pred_instances, feature_dict

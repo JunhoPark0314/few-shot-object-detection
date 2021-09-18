@@ -30,6 +30,7 @@ datasets/vocsplit
 datasets/lvis
 datasets/lvissplit
 datasets/*/seed*
+datasets
 
 # configs
 #configs/Test

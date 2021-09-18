@@ -15,7 +15,7 @@ You may want to write your own script with your datasets and other customization
 """
 
 from fsdet.config import get_cfg, set_global_cfg
-from fsdet.engine import DefaultTrainer, default_argument_parser, default_setup
+from fsdet.engine import DefaultTrainer, default_argument_parser, default_setup, DefaultBankTrainer
 
 import detectron2.utils.comm as comm
 import os
@@ -24,6 +24,7 @@ from detectron2.data import MetadataCatalog
 from detectron2.engine import launch
 from fsdet.evaluation import (
     COCOEvaluator, DatasetEvaluators, LVISEvaluator, PascalVOCDetectionEvaluator, verify_results)
+from torch._C import Value
 
 
 class Trainer(DefaultTrainer):
@@ -63,7 +64,43 @@ class Trainer(DefaultTrainer):
         if len(evaluator_list) == 1:
             return evaluator_list[0]
         return DatasetEvaluators(evaluator_list)
+class MetaTrainer(DefaultBankTrainer):
+    """
+    We use the "DefaultTrainer" which contains a number pre-defined logic for
+    standard training workflow. They may not work for you, especially if you
+    are working on a new research project. In that case you can use the cleaner
+    "SimpleTrainer", or write your own training loop.
+    """
 
+    @classmethod
+    def build_evaluator(cls, cfg, dataset_name, output_folder=None):
+        """
+        Create evaluator(s) for a given dataset.
+        This uses the special metadata "evaluator_type" associated with each builtin dataset.
+        For your own dataset, you can simply create an evaluator manually in your
+        script and do not have to worry about the hacky if-else logic here.
+        """
+        if output_folder is None:
+            output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
+        evaluator_list = []
+        evaluator_type = MetadataCatalog.get(dataset_name).evaluator_type
+        if evaluator_type == "coco":
+            evaluator_list.append(
+                COCOEvaluator(dataset_name, cfg, True, output_folder)
+            )
+        if evaluator_type == "pascal_voc":
+            return PascalVOCDetectionEvaluator(dataset_name)
+        if evaluator_type == "lvis":
+            return LVISEvaluator(dataset_name, cfg, True, output_folder)
+        if len(evaluator_list) == 0:
+            raise NotImplementedError(
+                "no Evaluator for the dataset {} with the type {}".format(
+                    dataset_name, evaluator_type
+                )
+            )
+        if len(evaluator_list) == 1:
+            return evaluator_list[0]
+        return DatasetEvaluators(evaluator_list)
 
 def setup(args):
     """
@@ -82,12 +119,20 @@ def setup(args):
 def main(args):
     cfg = setup(args)
 
+    Trainer_api = None
+    if cfg.TRAINER == "TFA":
+        Trainer_api = Trainer
+    elif cfg.TRAINER == "META":
+        Trainer_api = MetaTrainer
+    else:
+        raise ValueError("Unknown cfg.TRAINER")
+
     if args.eval_only:
-        model = Trainer.build_model(cfg)
+        model = Trainer_api.build_model(cfg)
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
             cfg.MODEL.WEIGHTS, resume=args.resume
         )
-        res = Trainer.test(cfg, model)
+        res = Trainer_api.test(cfg, model)
         if comm.is_main_process():
             verify_results(cfg, res)
         return res
@@ -96,7 +141,8 @@ def main(args):
     If you'd like to do anything fancier than the standard training logic,
     consider writing your own training loop or subclassing the trainer.
     """
-    trainer = Trainer(cfg)
+
+    trainer = Trainer_api(cfg)
     trainer.resume_or_load(resume=args.resume)
     return trainer.train()
 

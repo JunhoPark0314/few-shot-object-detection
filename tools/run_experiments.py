@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument('--split', '-s', type=int, default=1, help='Data split')
     # COCO arguments
     parser.add_argument('--coco', action='store_true', help='Use COCO dataset')
+    parser.add_argument('--bd', type=str, help="backbone depth", default="101")
 
     args = parser.parse_args()
     return args
@@ -130,25 +131,26 @@ def get_config(seed, shot):
 
         config_dir = 'configs/PascalVOC-detection'
         ckpt_dir = 'checkpoints/voc/faster_rcnn'
-        base_cfg = '../../../Base-RCNN-FPN.yaml'
+        base_cfg = '../../../../Base-RCNN-FPN.yaml'
 
     seed_str = 'seed{}'.format(seed) if seed != 0 else ''
     fc = '_fc' if args.fc else ''
+    bd = args.bd
     unfreeze = '_unfreeze' if args.unfreeze else ''
     # Read an example config file for the config parameters
     temp = os.path.join(
-        temp_split, 'faster_rcnn_R_101_FPN_ft{}_{}_1shot{}'.format(
-            fc, temp_mode, unfreeze)
+        temp_split, "R_{}".format(bd), 'faster_rcnn_R_{}_FPN_ft{}_{}_1shot{}'.format(
+            bd, fc, temp_mode, unfreeze)
     )
     config = os.path.join(args.root, config_dir, temp + '.yaml')
 
-    prefix = 'faster_rcnn_R_101_FPN_ft{}_{}_{}shot{}{}'.format(
-        fc, mode, shot, unfreeze, args.suffix)
+    prefix = 'faster_rcnn_R_{}_FPN_ft{}_{}_{}shot{}{}'.format(
+        bd, fc, mode, shot, unfreeze, args.suffix)
 
-    output_dir = os.path.join(args.root, ckpt_dir, seed_str)
+    output_dir = os.path.join(args.root, ckpt_dir,"R_{}".format(bd), seed_str)
     os.makedirs(output_dir, exist_ok=True)
     save_dir = os.path.join(
-        args.root, config_dir, split, seed_str,
+        args.root, config_dir, split, "R_{}".format(bd), seed_str,
     )
     os.makedirs(save_dir, exist_ok=True)
     save_file = os.path.join(save_dir, prefix + '.yaml')
@@ -161,8 +163,8 @@ def get_config(seed, shot):
         ckpt_path = os.path.join(output_dir, prefix, 'model_reset_combine.pth')
         if not os.path.exists(ckpt_path):
             src2 = os.path.join(
-                output_dir, 'faster_rcnn_R_101_FPN_ft_novel_{}shot{}'.format(
-                    shot, args.suffix),
+                output_dir, 'faster_rcnn_R_{}_FPN_ft_novel_{}shot{}'.format(
+                    bd, shot, args.suffix),
                 'model_final.pth',
             )
             if not os.path.exists(src2):
@@ -171,7 +173,7 @@ def get_config(seed, shot):
                 assert False
             combine_cmd = 'python tools/ckpt_surgery.py --coco --method ' + \
                 'combine --src1 checkpoints/coco/faster_rcnn/faster_rcnn' + \
-                '_R_101_FPN_base/model_final.pth --src2 {}'.format(src2) + \
+                '_R_{}_FPN_base/model_final.pth --src2 {}'.format(bd, src2) + \
                 ' --save-dir {}'.format(os.path.join(output_dir, prefix))
             run_cmd(combine_cmd)
             assert os.path.exists(ckpt_path)
