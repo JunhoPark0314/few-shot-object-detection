@@ -462,3 +462,61 @@ class CosineSimOutputLayers(nn.Module):
         scores = self.scale * cos_dist
         proposal_deltas = self.bbox_pred(x)
         return scores, proposal_deltas
+
+@ROI_HEADS_OUTPUT_REGISTRY.register()
+class BankRCNNOutputLayers(nn.Module):
+    """
+    Two linear layers for predicting Fast R-CNN outputs:
+      (1) proposal-to-detection box regression deltas
+      (2) classification scores
+    """
+
+    def __init__(
+        self, cfg, input_size, num_classes, cls_agnostic_bbox_reg, box_dim=4
+    ):
+        """
+        Args:
+            cfg: config
+            input_size (int): channels, or (channels, height, width)
+            num_classes (int): number of foreground classes
+            cls_agnostic_bbox_reg (bool): whether to use class agnostic for bbox regression
+            box_dim (int): the dimension of bounding boxes.
+                Example box dimensions: 4 for regular XYXY boxes and 5 for rotated XYWHA boxes
+        """
+        super(FastRCNNOutputLayers, self).__init__()
+
+        if not isinstance(input_size, int):
+            input_size = np.prod(input_size)
+
+        # The prediction layer for num_classes foreground classes and one
+        # background class
+        # (hence + 1)
+        self.cls_agnostic_score = nn.Linear(input_size, 1)
+        num_bbox_reg_classes = 1 
+        self.bbox_pred = nn.Linear(input_size, num_bbox_reg_classes * box_dim)
+
+        nn.init.normal_(self.cls_score.weight, std=0.01)
+        nn.init.normal_(self.bbox_pred.weight, std=0.001)
+        for l in [self.cls_score, self.bbox_pred]:
+            nn.init.constant_(l.bias, 0)
+        
+    def generate_few_shot_weight(self, feature_dict):
+        cls_weight = None
+        bbox_weight = None
+
+        return cls_weight, bbox_weight
+
+    def forward(self, x, feature_dict):
+        cls_weight, bbox_weight = self.generate_few_shot_weight(feature_dict)
+        if x.dim() > 2:
+            x = torch.flatten(x, start_dim=1)
+        a_scores = self.cls_agnostic_score(x)
+        a_proposal_deltas = self.bbox_pred(x)
+
+        p_scores = torch.mm(x, cls_weight)
+        p_proposal_deltas = torch.mm(x, bbox_weight)
+
+        scores = p_scores + a_scores
+        proposal_deltas = p_proposal_deltas + a_proposal_deltas
+
+        return scores, proposal_deltas

@@ -470,5 +470,3 @@ class BankRPN(nn.Module):
             # Append feature map proposals with shape (N, Hi*Wi*A, B)
             proposals.append(proposals_i.view(N, -1, B))
         return proposals
-
-:

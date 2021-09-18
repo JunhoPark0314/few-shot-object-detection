@@ -25,10 +25,12 @@ MODEL:
   ROI_HEADS:
     NAME: "BankROIHeads"
     IN_FEATURES: ["p2", "p3", "p4", "p5"]
+    OUTPUT_LAYER: "BankRCNNOutputLayers"
   ROI_BOX_HEAD:
     NAME: "FastRCNNConvFCHead"
     NUM_FC: 2
     POOLER_RESOLUTION: 7
+  
 DATASETS:
   TRAIN: ("coco_2017_train",)
   TEST: ("coco_2017_val",)
