@@ -83,6 +83,11 @@ class BankRCNN(nn.Module):
 
             # TODO_P: use support feature to generate weight per task 
             # TODO_P: pass generated weight from support feature to proposal generatod
+        else:
+            support_feature = {
+                "proposal": None,
+                "roi": None
+            }
 
         if not self.training:
             return self.inference(batched_inputs)
@@ -108,7 +113,7 @@ class BankRCNN(nn.Module):
 
         if self.proposal_generator:
             proposals, proposal_losses, proposal_feature_dict = self.proposal_generator(
-                images, features, gt_instances, self.prepare_feature
+                images, features, gt_instances, support_feature["proposal"], self.prepare_feature
             )
         else:
             assert "proposals" in batched_inputs[0]
@@ -119,7 +124,7 @@ class BankRCNN(nn.Module):
             proposal_feature_dict = {}
 
         _, detector_losses, roi_feature_dict = self.roi_heads(
-            images, features, proposals, gt_instances, self.prepare_feature
+            images, features, proposals, gt_instances, support_feature["roi"], self.prepare_feature
         )
 
         losses = {}

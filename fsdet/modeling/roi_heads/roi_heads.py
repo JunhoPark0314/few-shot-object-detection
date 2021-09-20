@@ -549,7 +549,7 @@ class BankROIHeads(ROIHeads):
             self.cls_agnostic_bbox_reg,
         )
 
-    def forward(self, images, features, proposals, targets=None, prepare_feature=False):
+    def forward(self, images, features, proposals, targets=None, support_feature=None, prepare_feature=False):
         """
         See :class:`ROIHeads.forward`.
         """
@@ -561,13 +561,13 @@ class BankROIHeads(ROIHeads):
         features_list = [features[f] for f in self.in_features]
 
         if self.training:
-            losses, feature_dict = self._forward_box(features_list, proposals, prepare_feature)
+            losses, feature_dict = self._forward_box(features_list, proposals, support_feature, prepare_feature)
             return proposals, losses, feature_dict
         else:
-            pred_instances, feature_dict = self._forward_box(features_list, proposals)
+            pred_instances, feature_dict = self._forward_box(features_list, proposals, support_feature)
             return pred_instances, {}, feature_dict
 
-    def _forward_box(self, features, proposals, prepare_feature):
+    def _forward_box(self, features, proposals, support_feature, prepare_feature=False):
         """
         Forward logic of the box prediction branch.
 
@@ -600,10 +600,11 @@ class BankROIHeads(ROIHeads):
                 "class": gt_class,
                 "scale": gt_scale,
             }
+            return {}, feature_dict
 
         box_features = self.box_head(box_features)
         pred_class_logits, pred_proposal_deltas = self.box_predictor(
-            box_features
+            box_features, support_feature
         )
         del box_features
 
@@ -614,9 +615,8 @@ class BankROIHeads(ROIHeads):
             proposals,
             self.smooth_l1_beta,
         )
+
         if self.training:
-            if prepare_feature:
-                return {}. feature_dict
             return outputs.losses(), feature_dict
         else:
             pred_instances, _ = outputs.inference(

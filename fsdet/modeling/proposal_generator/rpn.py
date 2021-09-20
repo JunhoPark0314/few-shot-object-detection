@@ -17,7 +17,7 @@ from detectron2.modeling.matcher import Matcher
 from detectron2.modeling.sampling import subsample_labels
 from detectron2.modeling.proposal_generator.build import PROPOSAL_GENERATOR_REGISTRY
 from detectron2.modeling.proposal_generator.proposal_utils import find_top_rpn_proposals
-from detectron2.modeling.proposal_generator.rpn import build_rpn_head
+from detectron2.modeling.proposal_generator.rpn import build_rpn_head, RPN_HEAD_REGISTRY
 
 """
 Shape shorthand in this module:
@@ -44,6 +44,144 @@ Naming convention:
 
     gt_anchor_deltas: ground-truth box2box transform deltas
 """
+
+
+@RPN_HEAD_REGISTRY.register()
+class BankRPNHead(nn.Module):
+    """
+    Standard RPN classification and regression heads described in :paper:`Faster R-CNN`.
+    Uses a 3x3 conv to produce a shared hidden state from which one 1x1 conv predicts
+    objectness logits for each anchor and a second 1x1 conv predicts bounding-box deltas
+    specifying how to deform each anchor into an object proposal.
+    """
+
+    @configurable
+    def __init__(
+        self, *, in_channels: int, num_anchors: int, box_dim: int = 4, conv_dims: List[int] = (-1,)
+    ):
+        """
+        NOTE: this interface is experimental.
+
+        Args:
+            in_channels (int): number of input feature channels. When using multiple
+                input features, they must have the same number of channels.
+            num_anchors (int): number of anchors to predict for *each spatial position*
+                on the feature map. The total number of anchors for each
+                feature map will be `num_anchors * H * W`.
+            box_dim (int): dimension of a box, which is also the number of box regression
+                predictions to make for each anchor. An axis aligned box has
+                box_dim=4, while a rotated box has box_dim=5.
+            conv_dims (list[int]): a list of integers representing the output channels
+                of N conv layers. Set it to -1 to use the same number of output channels
+                as input channels.
+        """
+        super().__init__()
+        cur_channels = in_channels
+        # Keeping the old variable names and structure for backwards compatiblity.
+        # Otherwise the old checkpoints will fail to load.
+        if len(conv_dims) == 1:
+            out_channels = cur_channels if conv_dims[0] == -1 else conv_dims[0]
+            # 3x3 conv for the hidden representation
+            self.conv = self._get_rpn_conv(cur_channels, out_channels)
+            cur_channels = out_channels
+        else:
+            self.conv = nn.Sequential()
+            for k, conv_dim in enumerate(conv_dims):
+                out_channels = cur_channels if conv_dim == -1 else conv_dim
+                if out_channels <= 0:
+                    raise ValueError(
+                        f"Conv output channels should be greater than 0. Got {out_channels}"
+                    )
+                conv = self._get_rpn_conv(cur_channels, out_channels)
+                self.conv.add_module(f"conv{k}", conv)
+                cur_channels = out_channels
+        # 1x1 conv for predicting objectness logits
+        self.objectness_logits = nn.Conv2d(cur_channels, num_anchors, kernel_size=1, stride=1)
+        # 1x1 conv for predicting box2box transform deltas
+        self.anchor_deltas = nn.Conv2d(cur_channels, num_anchors * box_dim, kernel_size=1, stride=1)
+
+        # Linear layer for support feature to weight
+        self.feature_weight = nn.Linear(in_channels, cur_channels*2)
+        self.delta_weight = nn.Linear(4, cur_channels * 2)
+        self.scale_weight = nn.Linear(1, cur_channels * 2)
+
+        # Keeping the order of weights initialization same for backwards compatiblility.
+        for layer in self.modules():
+            if isinstance(layer, (nn.Conv2d, nn.Linear)):
+                nn.init.normal_(layer.weight, std=0.01)
+                nn.init.constant_(layer.bias, 0)
+
+    def _get_rpn_conv(self, in_channels, out_channels):
+        return Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            activation=nn.ReLU(),
+        )
+
+    @classmethod
+    def from_config(cls, cfg, input_shape):
+        # Standard RPN is shared across levels:
+        in_channels = [s.channels for s in input_shape]
+        assert len(set(in_channels)) == 1, "Each level must have the same channel!"
+        in_channels = in_channels[0]
+
+        # RPNHead should take the same input as anchor generator
+        # NOTE: it assumes that creating an anchor generator does not have unwanted side effect.
+        anchor_generator = build_anchor_generator(cfg, input_shape)
+        num_anchors = anchor_generator.num_anchors
+        box_dim = anchor_generator.box_dim
+        assert (
+            len(set(num_anchors)) == 1
+        ), "Each level must have the same number of anchors per spatial position"
+        return {
+            "in_channels": in_channels,
+            "num_anchors": num_anchors[0],
+            "box_dim": box_dim,
+            "conv_dims": cfg.MODEL.RPN.CONV_DIMS,
+        }
+
+    def forward(self, features: List[torch.Tensor], support_feature=None):
+        """
+        Args:
+            features (list[Tensor]): list of feature maps
+
+        Returns:
+            list[Tensor]: A list of L elements.
+                Element i is a tensor of shape (N, A, Hi, Wi) representing
+                the predicted objectness logits for all anchors. A is the number of cell anchors.
+            list[Tensor]: A list of L elements. Element i is a tensor of shape
+                (N, A*box_dim, Hi, Wi) representing the predicted "deltas" used to transform anchors
+                to proposals.
+        """
+
+        cls_weight = bbox_weight = lambda x: x
+        if support_feature is not None:
+            cls_weight, bbox_weight = self.generate_few_weight(support_feature)
+
+        pred_objectness_logits = []
+        pred_anchor_deltas = []
+        for x in features:
+            t = self.conv(x)
+            t_c = cls_weight(x)
+            t_b = bbox_weight(x)
+            pred_objectness_logits.append(self.objectness_logits(t_c))
+            pred_anchor_deltas.append(self.anchor_deltas(t_b))
+        return pred_objectness_logits, pred_anchor_deltas
+
+    def generate_few_weight(self, support_feature):
+        feature = support_feature["feature"]
+        deltas = support_feature["deltas"]
+        scale = support_feature["scale"].view(-1, 1)
+
+        weight = (self.feature_weight(feature) + self.delta_weight(deltas) + self.scale_weight(scale)).mean(dim=0)
+
+        dim = weight.shape[-1] // 2
+        cls_weight = lambda x: F.conv2d(x, weight[:dim].view()
+        box_weight = lambda x: F.conv2d(x, weight[dim:])
+        return cls_weight, box_weight
 
 @PROPOSAL_GENERATOR_REGISTRY.register()
 class BankRPN(nn.Module):
@@ -309,6 +447,7 @@ class BankRPN(nn.Module):
         images: ImageList,
         features: Dict[str, torch.Tensor],
         gt_instances: Optional[List[Instances]] = None,
+        support_feature: Optional[Dict[str,Dict]] = None,
         prepare_feature: bool=False
     ):
         """
@@ -328,7 +467,7 @@ class BankRPN(nn.Module):
         features = [features[f] for f in self.in_features]
         anchors = self.anchor_generator(features)
 
-        pred_objectness_logits, pred_anchor_deltas = self.rpn_head(features)
+        pred_objectness_logits, pred_anchor_deltas = self.rpn_head(features, support_feature)
         # Transpose the Hi*Wi*A dimension to the middle:
         pred_objectness_logits = [
             # (N, A, Hi, Wi) -> (N, Hi, Wi, A) -> (N, Hi*Wi*A)

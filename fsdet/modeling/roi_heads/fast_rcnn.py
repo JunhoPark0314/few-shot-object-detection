@@ -483,7 +483,7 @@ class BankRCNNOutputLayers(nn.Module):
             box_dim (int): the dimension of bounding boxes.
                 Example box dimensions: 4 for regular XYXY boxes and 5 for rotated XYWHA boxes
         """
-        super(FastRCNNOutputLayers, self).__init__()
+        super(BankRCNNOutputLayers, self).__init__()
 
         if not isinstance(input_size, int):
             input_size = np.prod(input_size)
@@ -491,7 +491,7 @@ class BankRCNNOutputLayers(nn.Module):
         # The prediction layer for num_classes foreground classes and one
         # background class
         # (hence + 1)
-        self.cls_agnostic_score = nn.Linear(input_size, 1)
+        self.cls_score = nn.Linear(input_size, 1)
         num_bbox_reg_classes = 1 
         self.bbox_pred = nn.Linear(input_size, num_bbox_reg_classes * box_dim)
 
@@ -500,23 +500,17 @@ class BankRCNNOutputLayers(nn.Module):
         for l in [self.cls_score, self.bbox_pred]:
             nn.init.constant_(l.bias, 0)
         
-    def generate_few_shot_weight(self, feature_dict):
-        cls_weight = None
-        bbox_weight = None
+    def generate_few_shot_weight(self, feature_dict=None):
+        cls_weight = lambda x: x
+        bbox_weight = lambda x: x
 
         return cls_weight, bbox_weight
 
-    def forward(self, x, feature_dict):
+    def forward(self, x, feature_dict=None):
         cls_weight, bbox_weight = self.generate_few_shot_weight(feature_dict)
         if x.dim() > 2:
             x = torch.flatten(x, start_dim=1)
-        a_scores = self.cls_agnostic_score(x)
-        a_proposal_deltas = self.bbox_pred(x)
-
-        p_scores = torch.mm(x, cls_weight)
-        p_proposal_deltas = torch.mm(x, bbox_weight)
-
-        scores = p_scores + a_scores
-        proposal_deltas = p_proposal_deltas + a_proposal_deltas
+        scores = self.cls_score(cls_weight(x))
+        proposal_deltas = self.bbox_pred(bbox_weight(x))
 
         return scores, proposal_deltas

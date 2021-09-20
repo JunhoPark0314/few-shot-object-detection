@@ -638,9 +638,10 @@ class DefaultBankTrainer(BankTrainer):
 
         # TODO_P: need to change this ad-hoc part
         backbone_dim = model.backbone.output_shape()['p2'].channels
-        mapping = MetadataCatalog.get(cfg.DATASETS.TRAIN[0]).reverse_map
-        keepclass = MetadataCatalog.get(cfg.DATASETS.TRAIN[0]).keep_classes
-        cls_id_list = [mapping[k] for k in keepclass]
+        meta = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
+        mapping = meta.reverse_map
+        keepclass = meta.keep_classes
+        cls_id_list = meta.thing_classes
         memory = self.build_memory(cfg, cls_id_list, backbone_dim)
 
         # For training, wrap with DDP. But don't need this for inference.
@@ -675,6 +676,7 @@ class DefaultBankTrainer(BankTrainer):
             cfg.OUTPUT_DIR,
             optimizer=optimizer,
             scheduler=self.scheduler,
+            ema_model=ema_model
         )
         self.start_iter = 0
         self.max_iter = cfg.SOLVER.MAX_ITER
@@ -699,6 +701,19 @@ class DefaultBankTrainer(BankTrainer):
             ).get("iteration", -1)
             + 1
         )
+
+
+        if self.start_iter == 0:
+            with torch.no_grad():
+                for param_train, param_eval in zip(self.model.parameters(), self.ema_model.parameters()):
+                    param_eval.copy_(param_train.detach())
+                
+                for buffer_train, buffer_eval in zip(self.model.buffers(), self.ema_model.buffers()):
+                    buffer_eval.copy_(buffer_train)
+
+
+
+                                
 
     def build_hooks(self):
         """
@@ -751,7 +766,7 @@ class DefaultBankTrainer(BankTrainer):
         
         # TODO_P: add cfg MEMORY part 
         ret.append(MemoryBankHook(
-            cfg.MEMORY.UPDATE_PERIOD, self.ema_model, self.memory, self._data_loader_iter, self.cfg
+            cfg.MEMORY.UPDATE_PERIOD, self.ema_model, self.memory, self._data_loader_iter, self.cfg, self.model
         ))
 
         if comm.is_main_process():
@@ -796,6 +811,13 @@ class DefaultBankTrainer(BankTrainer):
         Returns:
             OrderedDict of results, if evaluation is enabled. Otherwise None.
         """
+
+        mp = dict(self.model.named_parameters())
+        emp = dict(self.ema_model.named_parameters())
+        for k, p in mp.items():
+            if (emp[k] == p).all().item() is not True:
+                print(k)
+
         super().train(self.start_iter, self.max_iter)
         if hasattr(self, "_last_eval_results") and comm.is_main_process():
             verify_results(self.cfg, self._last_eval_results)

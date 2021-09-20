@@ -9,6 +9,9 @@ import detectron2.utils.comm as comm
 from detectron2.config import global_cfg
 from detectron2.engine.train_loop import HookBase
 from detectron2.evaluation.testing import flatten_results_dict
+from tqdm import tqdm
+import logging
+import copy
 
 __all__ = ["EvalHookFsdet"]
 
@@ -87,7 +90,7 @@ class MemoryBankHook(HookBase):
     Update memory bank periodically
     """
 
-    def __init__(self, update_period, ema_model, memory, data_loader, cfg):
+    def __init__(self, update_period, ema_model, memory, data_loader, cfg, model=None):
         """
         Args:
             eval_period (int): the period to run `eval_function`. Set to 0 to
@@ -106,17 +109,35 @@ class MemoryBankHook(HookBase):
         self._data_loader = data_loader
         self.cfg = cfg
 
+        self._model = model
+
     def _update_memory(self):
-        
+        logger = logging.getLogger(__name__)
+        if comm.is_main_process():
+            logger.info(
+                "Periodic Memory update"
+            )
+
         with torch.no_grad():
             self._memory()
             num_img = self.cfg.MEMORY.NUM_IMAGE
             num_batch = self.cfg.SOLVER.IMS_PER_BATCH
             num_iter = (num_img // num_batch) + 1
+            self._model.prepare_feature = True
+
+            if comm.is_main_process():
+                pbar = tqdm(total=num_iter, desc="Memory update, #Batch")
+
             for _ in range(num_iter):
                 data = next(self._data_loader)
                 feature_dict, _ = self._ema_model(data)
+                fd, _ = self._model(data)
                 self._memory(feature_dict=feature_dict)
+
+                if comm.is_main_process():
+                    pbar.update()
+
+            self._model.prepare_feature = False
 
         # Memory update may take different time among workers.
         # A barrier make them start the next iteration together.
