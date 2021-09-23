@@ -120,7 +120,7 @@ class BankRCNN(nn.Module):
             proposal_feature_dict = {}
 
         _, detector_losses, roi_feature_dict = self.roi_heads(
-            images, features, proposals, gt_instances, latent["roi"], support_gt_class, self.prepare_feature
+            images, features, proposals, gt_instances, latent["roi"], support_gt_class, self.prepare_feature,
         )
 
         losses = {}

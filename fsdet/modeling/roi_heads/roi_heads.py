@@ -620,7 +620,8 @@ class BankROIHeads(ROIHeads):
                 new_class[idx_cls[:,1]] = idx_cls[:,0]+1
                 prop.gt_classes = new_class
         elif support_gt_class is None:
-            pass
+            for prop in proposals:
+                prop.gt_classes = (prop.gt_classes != self.num_classes).long()
 
         outputs = BankRCNNOutputs(
             self.box2box_transform,

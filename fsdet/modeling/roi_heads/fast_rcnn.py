@@ -496,6 +496,9 @@ class BankRCNNOutputLayers(nn.Module):
         self.cls_score = DynamicCondLinear(nof_kernels=8, reduce=8, in_channels=input_size, out_channels=1)
         self.bbox_pred = DynamicCondLinear(nof_kernels=8, reduce=8, in_channels=input_size, out_channels=box_dim)
 
+        self.max_iter = cfg.SOLVER.MAX_ITER
+        self.temperature = cfg.MODEL.RPN.TEMPERATURE
+
         for layer in self.modules():
             if isinstance(layer, (nn.Conv2d, nn.Linear)):
                 nn.init.normal_(layer.weight, std=0.01)
@@ -503,10 +506,12 @@ class BankRCNNOutputLayers(nn.Module):
         
     def forward(self, x, support_feature):
         cls_weight, bbox_weight = support_feature
+        curr_iter_por = (self.max_iter - get_event_storage().iter) / self.max_iter
+        temperature = self.temperature * curr_iter_por
         if x.dim() > 2:
             x = torch.flatten(x, start_dim=1)
-        scores = self.cls_score(x, condition=cls_weight)
-        proposal_deltas = self.bbox_pred(x, condition=bbox_weight)
+        scores = self.cls_score(x, condition=cls_weight, temperature=temperature)
+        proposal_deltas = self.bbox_pred(x, condition=bbox_weight, temperature=temperature)
 
         return scores, proposal_deltas
 
@@ -614,7 +619,6 @@ class BankRCNNOutputs(object):
         """
         self._log_accuracy()
         gt_labels = F.one_hot(self.gt_classes, self.pred_class_logits.shape[-1]+1)[:,1:].float()
-        assert (gt_labels.sum(dim=0) != 0).all().item()
         return nn.BCEWithLogitsLoss(reduction="mean")(self.pred_class_logits, gt_labels)
 
         return sigmoid_focal_loss_jit(
