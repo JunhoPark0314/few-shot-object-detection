@@ -16,7 +16,7 @@ from detectron2.utils.registry import Registry
 from typing import Dict
 
 from .box_head import build_box_head
-from .fast_rcnn import ROI_HEADS_OUTPUT_REGISTRY, FastRCNNOutputLayers, FastRCNNOutputs
+from .fast_rcnn import ROI_HEADS_OUTPUT_REGISTRY, FastRCNNOutputLayers, FastRCNNOutputs, BankRCNNOutputs, BankRCNNOutputLayers
 from fsdet.modeling.poolers import ROIPooler
 
 ROI_HEADS_REGISTRY = Registry("ROI_HEADS")
@@ -549,7 +549,11 @@ class BankROIHeads(ROIHeads):
             self.cls_agnostic_bbox_reg,
         )
 
-    def forward(self, images, features, proposals, targets=None, support_feature=None, prepare_feature=False):
+        self.focal_loss_alpha = cfg.MODEL.RETINANET.FOCAL_LOSS_ALPHA
+        self.focal_loss_gamma = cfg.MODEL.RETINANET.FOCAL_LOSS_GAMMA
+        self.roi_threshold = cfg.MODEL.RETINANET.SCORE_THRESH_TEST
+
+    def forward(self, images, features, proposals, targets=None, support_latent=None, support_gt_class=None, prepare_feature=False):
         """
         See :class:`ROIHeads.forward`.
         """
@@ -561,13 +565,13 @@ class BankROIHeads(ROIHeads):
         features_list = [features[f] for f in self.in_features]
 
         if self.training:
-            losses, feature_dict = self._forward_box(features_list, proposals, support_feature, prepare_feature)
+            losses, feature_dict = self._forward_box(features_list, proposals, support_latent, support_gt_class, prepare_feature)
             return proposals, losses, feature_dict
         else:
-            pred_instances, feature_dict = self._forward_box(features_list, proposals, support_feature)
+            pred_instances, feature_dict = self._forward_box(features_list, proposals, support_latent, support_gt_class)
             return pred_instances, {}, feature_dict
 
-    def _forward_box(self, features, proposals, support_feature, prepare_feature=False):
+    def _forward_box(self, features, proposals, support_latent, support_gt_class=None, prepare_feature=False):
         """
         Forward logic of the box prediction branch.
 
@@ -585,6 +589,7 @@ class BankROIHeads(ROIHeads):
         box_features, gt_scale = self.box_pooler(
             features, [x.proposal_boxes for x in proposals], return_scale=True
         )
+        box_features = self.box_head(box_features)
 
         feature_dict = {}
 
@@ -593,27 +598,39 @@ class BankROIHeads(ROIHeads):
             proposal_box_tensor = torch.cat([x.proposal_boxes.tensor for x in proposals])
             gt_prop_deltas = self.box2box_transform.get_deltas(proposal_box_tensor, gt_box_tensor)
             gt_class = torch.cat([x.gt_classes for x in proposals])
+            mask = gt_class != self.num_classes
             
             feature_dict = {
-                "feature": box_features.detach().clone(),
-                "deltas": gt_prop_deltas,
-                "class": gt_class,
-                "scale": gt_scale,
+                "feature": box_features.detach().clone()[mask],
+                "deltas": gt_prop_deltas[mask],
+                "class": gt_class[mask],
+                "scale": gt_scale[mask],
             }
             return {}, feature_dict
 
-        box_features = self.box_head(box_features)
         pred_class_logits, pred_proposal_deltas = self.box_predictor(
-            box_features, support_feature
+            box_features, support_latent
         )
         del box_features
 
-        outputs = FastRCNNOutputs(
+        if support_gt_class is not None and hasattr(proposals[0], "gt_classes"):
+            for prop in proposals:
+                idx_cls = (prop.gt_classes == support_gt_class.view(-1, 1)).nonzero(as_tuple=False)
+                new_class = torch.zeros_like(prop.gt_classes)
+                new_class[idx_cls[:,1]] = idx_cls[:,0]+1
+                prop.gt_classes = new_class
+        elif support_gt_class is None:
+            pass
+
+        outputs = BankRCNNOutputs(
             self.box2box_transform,
             pred_class_logits,
             pred_proposal_deltas,
             proposals,
             self.smooth_l1_beta,
+            self.focal_loss_alpha,
+            self.focal_loss_gamma,
+            self.roi_threshold
         )
 
         if self.training:

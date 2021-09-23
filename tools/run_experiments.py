@@ -62,7 +62,7 @@ def run_exp(cfg, configs):
         train_cmd = 'python tools/train_net.py --dist-url auto --num-gpus {} ' \
                     '--config-file {} --resume'.format(args.num_gpus, cfg)
         run_cmd(train_cmd)
-
+ 
     # Test
     res_path = os.path.join(args.root, output_dir, 'inference',
                             'res_final.json')

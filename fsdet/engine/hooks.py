@@ -119,7 +119,7 @@ class MemoryBankHook(HookBase):
             )
 
         with torch.no_grad():
-            self._memory()
+            #self._memory()
             num_img = self.cfg.MEMORY.NUM_IMAGE
             num_batch = self.cfg.SOLVER.IMS_PER_BATCH
             num_iter = (num_img // num_batch) + 1
@@ -131,7 +131,6 @@ class MemoryBankHook(HookBase):
             for _ in range(num_iter):
                 data = next(self._data_loader)
                 feature_dict, _ = self._ema_model(data)
-                fd, _ = self._model(data)
                 self._memory(feature_dict=feature_dict)
 
                 if comm.is_main_process():

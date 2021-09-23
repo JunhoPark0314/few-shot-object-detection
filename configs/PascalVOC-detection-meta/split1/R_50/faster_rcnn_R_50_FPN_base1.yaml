@@ -5,15 +5,16 @@ MODEL:
   RESNETS:
     DEPTH: 50
   ROI_HEADS:
-    NUM_CLASSES: 15
+    NUM_CLASSES: 20
 INPUT:
   MIN_SIZE_TRAIN: (480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800)
   MIN_SIZE_TEST: 800
 DATASETS:
-  TRAIN: ('voc_test_cocolike_base1',)
+  TRAIN: ('voc_train_cocolike_base1','voc_val_cocolike_base1')
   TEST: ('voc_test_cocolike_base1','voc_test_cocolike_novel1')
+  CONDITION: ('voc_2007_trainval_all1_1shot_seed1',)
 SOLVER:
   STEPS: (12000, 16000)
   MAX_ITER: 18000  # 17.4 epochs
   WARMUP_ITERS: 100
-OUTPUT_DIR: "checkpoints/voc/faster_rcnn/R_50/faster_rcnn_R_50_FPN_base1"
+OUTPUT_DIR: "checkpoints/test"

@@ -88,12 +88,16 @@ class BankTrainer(TrainerBase):
         data = next(self._data_loader_iter)
         data_time = time.perf_counter() - start
 
-        feature_dict = self.memory(class_dict=data)
+        gt_class = []
+        for x in data:
+            gt_class.append(x['instances'].gt_classes)
+        gt_class = torch.cat(gt_class).unique(sorted=True)
+        memory_feature_dict = self.memory(gt_class=gt_class)
 
         """
         If you want to do something with the losses, you can wrap the model.
         """
-        _, loss_dict = self.model(data, feature_dict)
+        _, loss_dict = self.model(data, memory_feature_dict)
         if isinstance(loss_dict, torch.Tensor):
             losses = loss_dict
             loss_dict = {"total_loss": loss_dict}
@@ -117,14 +121,13 @@ class BankTrainer(TrainerBase):
         self.optimizer.step()
         self.ema_model_update()
 
+        """
+        detach feature dict in here and gather feature dict along all batch
+        """
+        # TODO_P: detach feature_dict in here
         with torch.no_grad():
-            data["feature_dict"] = None
-            feature_dict, _ = self.ema_model(data)
-            """
-            detach feature dict in here and gather feature dict along all batch
-            """
-            # TODO_P: detach feature_dict in here
-            self.memory(feature_dict=feature_dict)
+            curr_batch_feature_dict, _ = self.ema_model(data)
+            self.memory(feature_dict=curr_batch_feature_dict)
 
     def _write_metrics(
         self,

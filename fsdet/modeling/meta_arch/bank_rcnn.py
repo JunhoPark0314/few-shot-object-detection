@@ -7,6 +7,7 @@ import logging
 from detectron2.modeling.backbone import build_backbone
 from detectron2.modeling.postprocessing import detector_postprocess
 from detectron2.modeling.proposal_generator import build_proposal_generator
+from fsdet.modeling.encoder.build import build_latent_encoder
 from detectron2.structures import ImageList
 from detectron2.utils.logger import log_first_n
 from fsdet.modeling.proposal_generator.rpn import BankRPN
@@ -38,6 +39,10 @@ class BankRCNN(nn.Module):
         assert type(self.proposal_generator) == BankRPN
 
         self.roi_heads = build_roi_heads(cfg, self.backbone.output_shape())
+
+        self.latent_encoder = build_latent_encoder(
+            cfg, self.backbone.output_shape()
+        )
 
         assert len(cfg.MODEL.PIXEL_MEAN) == len(cfg.MODEL.PIXEL_STD)
         num_channels = len(cfg.MODEL.PIXEL_MEAN)
@@ -78,19 +83,10 @@ class BankRCNN(nn.Module):
                 The :class:`Instances` object has the following keys:
                     "pred_boxes", "pred_classes", "scores"
         """
-        if support_feature is not None:
-            assert self.prepare_feature is False
-
-            # TODO_P: use support feature to generate weight per task 
-            # TODO_P: pass generated weight from support feature to proposal generatod
-        else:
-            support_feature = {
-                "proposal": None,
-                "roi": None
-            }
+        latent, support_gt_class = self.latent_encoder(support_feature, self.device)
 
         if not self.training:
-            return self.inference(batched_inputs)
+            return self.inference(batched_inputs, latent)
 
         images = self.preprocess_image(batched_inputs)
         if "instances" in batched_inputs[0]:
@@ -113,7 +109,7 @@ class BankRCNN(nn.Module):
 
         if self.proposal_generator:
             proposals, proposal_losses, proposal_feature_dict = self.proposal_generator(
-                images, features, gt_instances, support_feature["proposal"], self.prepare_feature
+                images, features, gt_instances, latent["proposal"], self.prepare_feature
             )
         else:
             assert "proposals" in batched_inputs[0]
@@ -124,7 +120,7 @@ class BankRCNN(nn.Module):
             proposal_feature_dict = {}
 
         _, detector_losses, roi_feature_dict = self.roi_heads(
-            images, features, proposals, gt_instances, support_feature["roi"], self.prepare_feature
+            images, features, proposals, gt_instances, latent["roi"], support_gt_class, self.prepare_feature
         )
 
         losses = {}
@@ -142,7 +138,7 @@ class BankRCNN(nn.Module):
         return feature_dict ,losses
 
     def inference(
-        self, batched_inputs, detected_instances=None, do_postprocess=True
+        self, batched_inputs, support_feature=None, detected_instances=None, do_postprocess=True
     ):
         """
         Run inference on the given inputs.
@@ -167,14 +163,14 @@ class BankRCNN(nn.Module):
 
         if detected_instances is None:
             if self.proposal_generator:
-                proposals, _ = self.proposal_generator(images, features, None)
+                proposals, _, _ = self.proposal_generator(images, features, None, support_feature["proposal"])
             else:
                 assert "proposals" in batched_inputs[0]
                 proposals = [
                     x["proposals"].to(self.device) for x in batched_inputs
                 ]
 
-            results, _ = self.roi_heads(images, features, proposals, None)
+            results, _, _ = self.roi_heads(images, features, proposals, None, support_feature["roi"])
         else:
             detected_instances = [
                 x.to(self.device) for x in detected_instances
@@ -182,7 +178,7 @@ class BankRCNN(nn.Module):
             results = self.roi_heads.forward_with_given_boxes(
                 features, detected_instances
             )
-
+        
         if do_postprocess:
             processed_results = []
             for results_per_image, input_per_image, image_size in zip(

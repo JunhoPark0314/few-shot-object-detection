@@ -135,7 +135,7 @@ def main(args):
         res = Trainer_api.test(cfg, model)
         if comm.is_main_process():
             verify_results(cfg, res)
-        return res
+        return res 
 
     """
     If you'd like to do anything fancier than the standard training logic,

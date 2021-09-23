@@ -1,0 +1,1 @@
+from .build import build_latent_encoder
