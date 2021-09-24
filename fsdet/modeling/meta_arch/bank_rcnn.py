@@ -84,7 +84,7 @@ class BankRCNN(nn.Module):
                 The :class:`Instances` object has the following keys:
                     "pred_boxes", "pred_classes", "scores"
         """
-        latent, support_gt_class = self.latent_encoder(support_feature, self.device)
+        latent, support_gt_class, latent_loss = self.latent_encoder(support_feature, self.device)
 
         if not self.training:
             return self.inference(batched_inputs, latent, support_gt_class)
@@ -127,6 +127,7 @@ class BankRCNN(nn.Module):
         losses = {}
         losses.update(detector_losses)
         losses.update(proposal_losses)
+        losses.update(latent_loss)
         
         if self.prepare_feature:
             feature_dict = {

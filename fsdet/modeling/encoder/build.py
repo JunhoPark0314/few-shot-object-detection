@@ -44,6 +44,8 @@ class LatentEncoder(nn.Module):
 		self.rpn_bbox_alphas = AttentionLayerWoGP(c_dim=rpn_out_channels, hidden_dim=max(1, rpn_out_channels // reduce), nof_kernels=self.nok)
 		self.roi_cls_alphas = AttentionLayerWoGP(c_dim=roi_shape, hidden_dim=max(1, roi_shape // reduce), nof_kernels=self.nok)
 		self.roi_bbox_alphas = AttentionLayerWoGP(c_dim=roi_shape, hidden_dim=max(1, roi_shape // reduce), nof_kernels=self.nok)
+		self.cont_loss = True
+	
 	
 	def forward(self, support_feature, device):
 		support_gt_class = None
@@ -70,6 +72,36 @@ class LatentEncoder(nn.Module):
 			roi_cls_weight, roi_bbox_weight = torch.chunk(roi_feature + roi_deltas + roi_scale, 2, dim=-1)
 			roi_cls_alphas = self.roi_cls_alphas(roi_cls_weight, temperature)
 			roi_bbox_alphas = self.roi_cls_alphas(roi_bbox_weight, temperature)
+
+			if self.cont_loss:
+				def contrastive(x, temp):
+					eps = 1e-7
+					return (x / temp).exp() / ((x / temp).exp()+eps).sum(dim=1)
+				
+				def cont_loss(x, gt, temp):
+					return -(contrastive(x, temp).log() * contrastive(gt, temp)).sum(dim=1).mean()
+					
+				roi_cls_graph_gt = (roi_gt_class.view(1, -1) == roi_gt_class.view(-1, 1)).float()
+				rpn_cls_graph_gt = (rpn_gt_class.view(1, -1) == rpn_gt_class.view(-1, 1)).float()
+				roi_bbox_graph_gt = torch.mm(support_feature["roi"]["deltas"], support_feature["roi"]["deltas"].T)
+				rpn_bbox_graph_gt = torch.mm(support_feature["proposal"]["deltas"], support_feature["proposal"]["deltas"].T)
+
+				roi_cls_graph = torch.mm(roi_cls_alphas, roi_cls_alphas.T)
+				rpn_cls_graph = torch.mm(rpn_cls_alphas, rpn_cls_alphas.T)
+				roi_bbox_graph = torch.mm(roi_bbox_alphas, roi_bbox_alphas.T)
+				rpn_bbox_graph = torch.mm(rpn_bbox_alphas, rpn_bbox_alphas.T)
+
+				roi_cls_loss = cont_loss(roi_cls_graph, roi_cls_graph_gt, 0.5)
+				rpn_cls_loss = cont_loss(rpn_cls_graph, rpn_cls_graph_gt, 0.5)
+				roi_bbox_loss = cont_loss(roi_bbox_graph, roi_bbox_graph_gt, 0.5)
+				rpn_bbox_loss = cont_loss(rpn_bbox_graph, rpn_bbox_graph_gt, 0.5)
+
+				loss = {
+					"roi_cls_grpah_loss": roi_cls_loss,
+					"rpn_cls_grpah_loss": rpn_cls_loss,
+					"roi_bbox_grpah_loss": roi_bbox_loss,
+					"rpn_bbox_grpah_loss": rpn_bbox_loss,
+				}
 
 			per_class_alphas = []
 			for cid in support_gt_class:

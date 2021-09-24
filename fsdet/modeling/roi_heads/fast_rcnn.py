@@ -583,6 +583,8 @@ class BankRCNNOutputs(object):
         bg_class = 0
         pred_classes[bg_ind] = bg_class
 
+        gt_mask = F.one_hot(self.gt_classes,num_classes=self.pred_class_logits.shape[1]+1)[:,1:].bool()
+
         fg_inds = (self.gt_classes > 0)
         num_fg = fg_inds.nonzero().numel()
         fg_gt_classes = self.gt_classes[fg_inds]
@@ -597,6 +599,12 @@ class BankRCNNOutputs(object):
         storage = get_event_storage()
         storage.put_scalar(
             "fast_rcnn/cls_accuracy", num_accurate / num_instances
+        )
+        storage.put_histogram(
+            "fast_rcnn/pos_hist", self.pred_class_logits.sigmoid()[gt_mask]
+        )
+        storage.put_histogram(
+            "fast_rcnn/neg_hist", self.pred_class_logits.sigmoid()[~gt_mask]
         )
         if num_fg > 0:
             storage.put_scalar(
@@ -616,15 +624,17 @@ class BankRCNNOutputs(object):
         if len(self.gt_classes.unique()) > 2:
             self._log_accuracy()
         gt_labels = F.one_hot(self.gt_classes, self.pred_class_logits.shape[-1]+1)[:,1:].float()
-        return nn.BCEWithLogitsLoss(reduction="mean")(self.pred_class_logits, gt_labels)
+        num_fg = max(gt_labels.sum(), 1)
+
+        return nn.BCEWithLogitsLoss(reduction="none")(self.pred_class_logits, gt_labels).sum(dim=1).mean()
 
         return sigmoid_focal_loss_jit(
             self.pred_class_logits,
             gt_labels,
             alpha=self.focal_loss_alpha,
             gamma=self.focal_loss_gamma,
-            reduction="mean",
-        )
+            reduction="sum",
+        ) / num_fg
 
     def losses(self):
         """
