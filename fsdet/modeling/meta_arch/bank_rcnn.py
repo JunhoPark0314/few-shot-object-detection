@@ -1,3 +1,4 @@
+from detectron2.utils.events import get_event_storage
 import torch
 from torch import nn
 
@@ -86,7 +87,7 @@ class BankRCNN(nn.Module):
         latent, support_gt_class = self.latent_encoder(support_feature, self.device)
 
         if not self.training:
-            return self.inference(batched_inputs, latent)
+            return self.inference(batched_inputs, latent, support_gt_class)
 
         images = self.preprocess_image(batched_inputs)
         if "instances" in batched_inputs[0]:
@@ -138,7 +139,7 @@ class BankRCNN(nn.Module):
         return feature_dict ,losses
 
     def inference(
-        self, batched_inputs, support_feature=None, detected_instances=None, do_postprocess=True
+        self, batched_inputs, latent, support_gt_class, detected_instances=None, do_postprocess=True
     ):
         """
         Run inference on the given inputs.
@@ -163,14 +164,14 @@ class BankRCNN(nn.Module):
 
         if detected_instances is None:
             if self.proposal_generator:
-                proposals, _, _ = self.proposal_generator(images, features, None, support_feature["proposal"])
+                proposals, _, _ = self.proposal_generator(images, features, None, latent["proposal"])
             else:
                 assert "proposals" in batched_inputs[0]
                 proposals = [
                     x["proposals"].to(self.device) for x in batched_inputs
                 ]
 
-            results, _, _ = self.roi_heads(images, features, proposals, None, support_feature["roi"])
+            results, _, _ = self.roi_heads(images, features, proposals, None, latent["roi"], support_gt_class)
         else:
             detected_instances = [
                 x.to(self.device) for x in detected_instances

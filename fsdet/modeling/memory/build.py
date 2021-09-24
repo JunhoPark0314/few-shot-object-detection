@@ -98,6 +98,7 @@ class Memory(nn.Module):
             prop_feature = []
             prop_deltas = []
             prop_scale = []
+            prop_class = []
 
             roi_feature = []
             roi_deltas = []
@@ -115,6 +116,7 @@ class Memory(nn.Module):
                 prop_feature.append(self.proposal_feature_memory[cid_map][prop_idx])
                 prop_deltas.append(self.proposal_delta_memory[cid_map][prop_idx])
                 prop_scale.append(self.proposal_scale_memory[cid_map][prop_idx])
+                prop_class.append(torch.ones_like(self.proposal_scale_memory[cid_map][prop_idx]) * (cid))
 
                 roi_feature.append(self.roi_feature_memory[cid_map][roi_idx])
                 roi_deltas.append(self.roi_delta_memory[cid_map][roi_idx])
@@ -124,6 +126,7 @@ class Memory(nn.Module):
             prop_feature = torch.cat(prop_feature)
             prop_deltas = torch.cat(prop_deltas)
             prop_scale = torch.cat(prop_scale)
+            prop_class = torch.cat(prop_class)
             roi_feature = torch.cat(roi_feature)
             roi_deltas = torch.cat(roi_deltas)
             roi_scale = torch.cat(roi_scale)
@@ -134,6 +137,7 @@ class Memory(nn.Module):
                     "feature": prop_feature,
                     "deltas": prop_deltas,
                     "scale": prop_scale,
+                    "class": prop_class
                 },
                 "roi":{
                     "feature": roi_feature,

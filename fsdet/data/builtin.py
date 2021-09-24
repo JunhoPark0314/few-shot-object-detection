@@ -301,7 +301,7 @@ def register_all_cocolike_voc(root="datasets"):
                     os.path.join(root, json_file) if "://" not in json_file else json_file,
                     os.path.join(root, image_root),
                 )
-                MetadataCatalog.get(name).evaluator_type = "coco"
+                MetadataCatalog.get(name).evaluator_type = "cocolike_voc"
 
 # Register them all under "./datasets"
 register_all_coco()

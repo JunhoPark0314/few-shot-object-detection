@@ -43,7 +43,7 @@ class AttentionLayerWoGP(nn.Module):
         scores = scores.view(1, cond_batch_size, -1).repeat(batch_size, 1, 1)
         return F.softmax(scores / temperature, dim=-1)
 
-class DynamicCondLinear(TempModule):
+class DynamicCondLinear(nn.Module):
     def __init__(self, nof_kernels, reduce, in_channels, out_channels, init_bias=None, bias=True):
         """
         Implementation of Dynamic convolution layer
@@ -58,7 +58,7 @@ class DynamicCondLinear(TempModule):
         self.out_channels = out_channels
 
         self.nof_kernels = nof_kernels
-        self.attention = AttentionLayerWoGP(in_channels, max(1, in_channels // reduce), nof_kernels)
+        #self.attention = AttentionLayerWoGP(in_channels, max(1, in_channels // reduce), nof_kernels)
         self.kernels_weights = nn.Parameter(torch.Tensor(
             nof_kernels, out_channels, in_channels), requires_grad=True)
         if bias:
@@ -77,12 +77,14 @@ class DynamicCondLinear(TempModule):
         if self.kernels_bias is not None:
             nn.init.constant_(self.kernels_bias, 0)
 
-    def forward(self, x, condition, temperature=1):
+    def forward(self, x, condition):
         batch_size = x.shape[0]
+        cond_batch_size = condition.shape[0]
 
-        alphas = self.attention(condition, batch_size, temperature)
+        #alphas = self.attention(condition, batch_size, temperature)
+        alphas = condition.view(1, cond_batch_size, -1).repeat(batch_size, 1, 1)
         agg_weights = torch.sum(
-            torch.mul(self.kernels_weights.permute(0, 1, 2).unsqueeze(0), alphas.permute(0, 2, 1).unsqueeze(-1)), dim=1)
+            torch.mul(self.kernels_weights.unsqueeze(0), alphas.permute(0, 2, 1).unsqueeze(-1)), dim=1)
 
         if self.kernels_bias is not None:
             agg_bias = torch.sum(torch.mul(self.kernels_bias.unsqueeze(0), alphas.permute(0, 2, 1)), dim=1)

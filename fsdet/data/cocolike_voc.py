@@ -515,7 +515,7 @@ def register_cocolike_voc_instances(name, metadata, sid, keepclasses, json_file,
     MetadataCatalog.get(name).set(
         json_file=json_file,
         image_root=image_root,
-        evaluator_type="coco",
+        evaluator_type="cocolike_voc",
         keep_classes=keep_classes,
         split=sid,
         set_id=set_id, 

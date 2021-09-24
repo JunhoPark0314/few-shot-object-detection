@@ -493,11 +493,9 @@ class BankRCNNOutputLayers(nn.Module):
         # The prediction layer for num_classes foreground classes and one
         # background class
         # (hence + 1)
-        self.cls_score = DynamicCondLinear(nof_kernels=8, reduce=8, in_channels=input_size, out_channels=1)
-        self.bbox_pred = DynamicCondLinear(nof_kernels=8, reduce=8, in_channels=input_size, out_channels=box_dim)
-
-        self.max_iter = cfg.SOLVER.MAX_ITER
-        self.temperature = cfg.MODEL.RPN.TEMPERATURE
+        nof_kernels = cfg.MODEL.ENCODER.NOK
+        self.cls_score = DynamicCondLinear(nof_kernels=nof_kernels, reduce=8, in_channels=input_size, out_channels=1)
+        self.bbox_pred = DynamicCondLinear(nof_kernels=nof_kernels, reduce=8, in_channels=input_size, out_channels=box_dim)
 
         for layer in self.modules():
             if isinstance(layer, (nn.Conv2d, nn.Linear)):
@@ -506,12 +504,10 @@ class BankRCNNOutputLayers(nn.Module):
         
     def forward(self, x, support_feature):
         cls_weight, bbox_weight = support_feature
-        curr_iter_por = (self.max_iter - get_event_storage().iter) / self.max_iter
-        temperature = self.temperature * curr_iter_por
         if x.dim() > 2:
             x = torch.flatten(x, start_dim=1)
-        scores = self.cls_score(x, condition=cls_weight, temperature=temperature)
-        proposal_deltas = self.bbox_pred(x, condition=bbox_weight, temperature=temperature)
+        scores = self.cls_score(x, condition=cls_weight)
+        proposal_deltas = self.bbox_pred(x, condition=bbox_weight)
 
         return scores, proposal_deltas
 
@@ -617,7 +613,8 @@ class BankRCNNOutputs(object):
         Returns:
             scalar Tensor
         """
-        self._log_accuracy()
+        if len(self.gt_classes.unique()) > 2:
+            self._log_accuracy()
         gt_labels = F.one_hot(self.gt_classes, self.pred_class_logits.shape[-1]+1)[:,1:].float()
         return nn.BCEWithLogitsLoss(reduction="mean")(self.pred_class_logits, gt_labels)
 

@@ -59,7 +59,7 @@ class BankRPNHead(nn.Module):
 
     @configurable
     def __init__(
-        self, *, in_channels: int, num_anchors: int, box_dim: int = 4, conv_dims: List[int] = (-1,), max_iter: int = 17000, temperature: int = 30,
+        self, *, in_channels: int, num_anchors: int, box_dim: int = 4, conv_dims: List[int] = (-1,), nof_kernels: int=8
     ):
         """
         NOTE: this interface is experimental.
@@ -98,11 +98,9 @@ class BankRPNHead(nn.Module):
                 self.conv.add_module(f"conv{k}", conv)
                 cur_channels = out_channels
         # 1x1 conv for predicting objectness logits
-        self.objectness_logits = DynamicCondConv(nof_kernels=8, reduce=8, in_channels=cur_channels, out_channels=num_anchors, kernel_size=1, stride=1)
+        self.objectness_logits = DynamicCondConv(nof_kernels=nof_kernels, reduce=8, in_channels=cur_channels, out_channels=num_anchors, kernel_size=1, stride=1)
         # 1x1 conv for predicting box2box transform deltas
-        self.anchor_deltas = DynamicCondConv(nof_kernels=8, reduce=8, in_channels=cur_channels, out_channels=num_anchors * box_dim, kernel_size=1, stride=1)
-        self.max_iter = max_iter
-        self.temperature = temperature
+        self.anchor_deltas = DynamicCondConv(nof_kernels=nof_kernels, reduce=8, in_channels=cur_channels, out_channels=num_anchors * box_dim, kernel_size=1, stride=1)
 
         # Keeping the order of weights initialization same for backwards compatiblility.
         for layer in self.modules():
@@ -140,8 +138,7 @@ class BankRPNHead(nn.Module):
             "num_anchors": num_anchors[0],
             "box_dim": box_dim,
             "conv_dims": cfg.MODEL.RPN.CONV_DIMS,
-            "max_iter": cfg.SOLVER.MAX_ITER,
-            "temperature": cfg.MODEL.RPN.TEMPERATURE,
+            "nof_kernels": cfg.MODEL.ENCODER.NOK
         }
 
     def forward(self, features: List[torch.Tensor], support_feature: List[torch.Tensor]):
@@ -162,12 +159,10 @@ class BankRPNHead(nn.Module):
 
         pred_objectness_logits = []
         pred_anchor_deltas = []
-        curr_iter_por = (self.max_iter - get_event_storage().iter) / self.max_iter
-        temperature = self.temperature * curr_iter_por
         for x in features:
             t = self.conv(x)
-            pred_objectness_logits.append(self.objectness_logits(t, condition=cls_weight, temperature=temperature))
-            pred_anchor_deltas.append(self.anchor_deltas(t, condition=box_weight, temperature=temperature))
+            pred_objectness_logits.append(self.objectness_logits(t, condition=cls_weight))
+            pred_anchor_deltas.append(self.anchor_deltas(t, condition=box_weight))
         return pred_objectness_logits, pred_anchor_deltas
 
 @PROPOSAL_GENERATOR_REGISTRY.register()

@@ -37,12 +37,11 @@ class AttentionLayerWoGP(nn.Module):
                                        nn.ReLU(inplace=True),
                                        nn.Linear(hidden_dim, nof_kernels))
 
-    def forward(self, x, batch_size, temperature=1):
+    def forward(self, x, temperature=1):
         scores = self.to_scores(x)
-        scores = scores.view(1, -1).repeat(batch_size, 1)
         return F.softmax(scores / temperature, dim=-1)
 
-class DynamicCondConv(TempModule):
+class DynamicCondConv(nn.Module):
     def __init__(self, nof_kernels, reduce, in_channels, out_channels, kernel_size,
                  stride=1, padding=0, dilation=1, groups=1, bias=True):
         """
@@ -63,7 +62,7 @@ class DynamicCondConv(TempModule):
         self.groups = groups
         self.conv_args = {'stride': stride, 'padding': padding, 'dilation': dilation}
         self.nof_kernels = nof_kernels
-        self.attention = AttentionLayerWoGP(in_channels, max(1, in_channels // reduce), nof_kernels)
+        #self.attention = AttentionLayerWoGP(in_channels, max(1, in_channels // reduce), nof_kernels)
         self.kernel_size = _pair(kernel_size)
         self.kernels_weights = nn.Parameter(torch.Tensor(
             nof_kernels, out_channels, in_channels // self.groups, *self.kernel_size), requires_grad=True)
@@ -79,10 +78,11 @@ class DynamicCondConv(TempModule):
         if self.kernels_bias is not None:
             nn.init.constant_(self.kernels_bias, 0)
 
-    def forward(self, x, condition, temperature=1):
+    def forward(self, x, condition):
         batch_size = x.shape[0]
 
-        alphas = self.attention(condition, batch_size, temperature)
+        #alphas = self.attention(condition, batch_size, temperature)
+        alphas = condition.view(1, -1).repeat(batch_size, 1)
         agg_weights = torch.sum(
             torch.mul(self.kernels_weights.unsqueeze(0), alphas.view(batch_size, -1, 1, 1, 1, 1)), dim=1)
         # Group the weights for each batch to conv2 all at once

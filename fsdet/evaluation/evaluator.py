@@ -3,6 +3,7 @@ import logging
 import time
 from collections import OrderedDict
 from contextlib import contextmanager
+from detectron2.utils.events import get_event_storage
 import torch
 
 from detectron2.utils.comm import is_main_process

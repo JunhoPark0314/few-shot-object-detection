@@ -45,6 +45,7 @@ from detectron2.utils.events import (
 	CommonMetricPrinter,
 	JSONWriter,
 	TensorboardXWriter,
+	get_event_storage,
 )
 
 from detectron2.utils.logger import setup_logger
@@ -682,7 +683,7 @@ class DefaultBankTrainer(BankTrainer):
 
 		self.register_hooks(self.build_hooks())
 
-	def resume_or_load(self, resume=True):
+	def resume_or_load(self, resume=True, checkpointables=[]):
 		"""
 		If `resume==True`, and last checkpoint exists, resume from it.
 
@@ -695,11 +696,10 @@ class DefaultBankTrainer(BankTrainer):
 		# at the next iteration (or iter zero if there's no checkpoint).
 		self.start_iter = (
 			self.checkpointer.resume_or_load(
-				self.cfg.MODEL.WEIGHTS, resume=resume
+				self.cfg.MODEL.WEIGHTS, resume=resume, checkpointables=checkpointables,
 			).get("iteration", -1)
 			+ 1
 		)
-
 
 		if self.start_iter == 0:
 			with torch.no_grad():
@@ -933,6 +933,7 @@ class DefaultBankTrainer(BankTrainer):
 		mapping = meta.reverse_map
 		keepclass = meta.thing_classes
 		self.memory = self.build_memory(cfg, mapping, keepclass, backbone_dim)
+		get_event_storage().iter = cfg.SOLVER.MAX_ITER
 
 		results = OrderedDict()
 		for idx, dataset_name in enumerate(cfg.DATASETS.CONDITION):
