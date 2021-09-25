@@ -267,7 +267,7 @@ class BankRPN(nn.Module):
 
         ret["anchor_generator"] = build_anchor_generator(cfg, [input_shape[f] for f in in_features])
         ret["anchor_matcher"] = Matcher(
-            cfg.MODEL.RPN.IOU_THRESHOLDS, cfg.MODEL.RPN.IOU_LABELS, allow_low_quality_matches=True
+            cfg.MODEL.RETINANET.IOU_THRESHOLDS, cfg.MODEL.RPN.IOU_LABELS, allow_low_quality_matches=True
         )
         ret["head"] = build_rpn_head(cfg, [input_shape[f] for f in in_features])
         return ret

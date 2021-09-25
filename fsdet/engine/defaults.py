@@ -938,10 +938,10 @@ class DefaultBankTrainer(BankTrainer):
 		results = OrderedDict()
 		for idx, dataset_name in enumerate(cfg.DATASETS.CONDITION):
 			data_loader = self.build_condition_loader(cfg, dataset_name)
-			condition_on_dataset(self.ema_model, data_loader, self.memory)
+			condition_on_dataset(self.model, data_loader, self.memory)
 
 		for idx, dataset_name in enumerate(cfg.DATASETS.TEST):
-			data_loader = self.build_test_loader(cfg, dataset_name)
+			data_loader = self.build_condition_loader(cfg, dataset_name)
 			# When evaluators are passed in as arguments,
 			# implicitly assume that evaluators can be created before data_loader.
 			if evaluators is not None:
@@ -958,7 +958,12 @@ class DefaultBankTrainer(BankTrainer):
 					continue
 
 			feature_dict = self.memory(gt_class=torch.arange(end=len(keepclass)), sample_rate=1.0)
-			results_i = meta_inference_on_dataset(model, feature_dict, data_loader, evaluator)
+
+			meta = MetadataCatalog.get(dataset_name)
+			meta.input_format = cfg.INPUT.FORMAT
+			writer = TensorboardXWriter(cfg.OUTPUT_DIR)
+
+			results_i = meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, meta, writer)
 			results[dataset_name] = results_i
 			if comm.is_main_process():
 				assert isinstance(
