@@ -101,11 +101,13 @@ class BankTrainer(TrainerBase):
 		"""
 		If you want to do something with the losses, you can wrap the model.
 		"""
-		_, loss_wo_memory_dict = self.model(data)
+		#_, loss_wo_memory_dict = self.model(data)
 		_, loss_dict= self.model(data, memory_feature_dict)
 
+		"""
 		for k, v in loss_wo_memory_dict.items():
 			loss_dict["wo_mem_{}".format(k)] = v
+		"""
 
 		if isinstance(loss_dict, torch.Tensor):
 			losses = loss_dict
@@ -135,8 +137,10 @@ class BankTrainer(TrainerBase):
 		"""
 		# TODO_P: detach feature_dict in here
 		with torch.no_grad():
-			curr_batch_feature_dict, _ = self.ema_model(data)
+			self.model.prepare_feature = True
+			curr_batch_feature_dict, _ = self.model(data)
 			self.memory(feature_dict=curr_batch_feature_dict)
+			self.model.prepare_feature = False
 
 	def _write_metrics(
 		self,

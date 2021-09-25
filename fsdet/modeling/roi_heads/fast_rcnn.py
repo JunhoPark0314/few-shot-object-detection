@@ -74,7 +74,7 @@ def fast_rcnn_inference(
             the corresponding boxes/scores index in [0, Ri) from the input, for image i.
     """
     result_per_image = [
-        fast_rcnn_inference_single_image(
+        bank_rcnn_inference_single_image(
             boxes_per_image,
             scores_per_image,
             image_shape,
@@ -88,6 +88,48 @@ def fast_rcnn_inference(
     ]
     return tuple(list(x) for x in zip(*result_per_image))
 
+def bank_rcnn_inference_single_image(
+    boxes, scores, image_shape, score_thresh, nms_thresh, topk_per_image
+):
+    """
+    Single-image inference. Return bounding-box detection results by thresholding
+    on scores and applying non-maximum suppression (NMS).
+
+    Args:
+        Same as `fast_rcnn_inference`, but with boxes, scores, and image shapes
+        per image.
+
+    Returns:
+        Same as `fast_rcnn_inference`, but for only one image.
+    """
+    num_bbox_reg_classes = boxes.shape[1] // 4
+    # Convert to Boxes to use the `clip` function ...
+    boxes = Boxes(boxes.reshape(-1, 4))
+    boxes.clip(image_shape)
+    boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
+
+    # Filter results based on detection scores
+    filter_mask = scores > score_thresh  # R x K
+    # R' x 2. First column contains indices of the R predictions;
+    # Second column contains indices of classes.
+    filter_inds = filter_mask.nonzero()
+    if num_bbox_reg_classes == 1:
+        boxes = boxes[filter_inds[:, 0], 0]
+    else:
+        boxes = boxes[filter_mask]
+    scores = scores[filter_mask]
+
+    # Apply per-class NMS
+    keep = batched_nms(boxes, scores, filter_inds[:, 1], nms_thresh)
+    if topk_per_image >= 0:
+        keep = keep[:topk_per_image]
+    boxes, scores, filter_inds = boxes[keep], scores[keep], filter_inds[keep]
+
+    result = Instances(image_shape)
+    result.pred_boxes = Boxes(boxes)
+    result.scores = scores
+    result.pred_classes = filter_inds[:, 1]
+    return result, filter_inds[:, 0]
 
 def fast_rcnn_inference_single_image(
     boxes, scores, image_shape, score_thresh, nms_thresh, topk_per_image
@@ -132,7 +174,6 @@ def fast_rcnn_inference_single_image(
     result.scores = scores
     result.pred_classes = filter_inds[:, 1]
     return result, filter_inds[:, 0]
-
 
 class FastRCNNOutputs(object):
     """
@@ -718,7 +759,8 @@ class BankRCNNOutputs(object):
                 Element i has shape (Ri, K + 1), where Ri is the number of predicted objects
                 for image i.
         """
-        probs = F.softmax(self.pred_class_logits, dim=-1)
+        #probs = F.softmax(self.pred_class_logits, dim=-1)
+        probs = self.pred_class_logits.sigmoid()
         return probs.split(self.num_preds_per_image, dim=0)
 
     def inference(self, score_thresh, nms_thresh, topk_per_image):
@@ -743,4 +785,3 @@ class BankRCNNOutputs(object):
             nms_thresh,
             topk_per_image,
         )
-

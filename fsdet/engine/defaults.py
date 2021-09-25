@@ -938,7 +938,7 @@ class DefaultBankTrainer(BankTrainer):
 		results = OrderedDict()
 		for idx, dataset_name in enumerate(cfg.DATASETS.CONDITION):
 			data_loader = self.build_condition_loader(cfg, dataset_name)
-			condition_on_dataset(self.model, data_loader, self.memory)
+			condition_on_dataset(self.ema_model, data_loader, self.memory)
 
 		for idx, dataset_name in enumerate(cfg.DATASETS.TEST):
 			data_loader = self.build_condition_loader(cfg, dataset_name)

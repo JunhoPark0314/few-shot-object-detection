@@ -11,8 +11,8 @@ INPUT:
   MIN_SIZE_TEST: 800
 DATASETS:
   TRAIN: ('voc_train_cocolike_base1','voc_val_cocolike_base1')
-  TEST: ('voc_test_cocolike_base1','voc_test_cocolike_novel1')
-  CONDITION: ('voc_2007_trainval_all1_1shot_seed1',)
+  TEST: ('voc_test_cocolike_base_novel1',)
+  CONDITION: ('voc_2007_trainval_all1_10shot_seed1',)
 SOLVER:
   STEPS: (12000, 16000)
   MAX_ITER: 18000  # 17.4 epochs

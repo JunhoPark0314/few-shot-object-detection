@@ -633,7 +633,7 @@ class BankROIHeads(ROIHeads):
             self.focal_loss_gamma,
             self.roi_threshold
         )
-
+ 
         if self.training:
             return outputs.losses(), feature_dict
         else:

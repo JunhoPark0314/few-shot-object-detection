@@ -127,10 +127,9 @@ class MemoryBankHook(HookBase):
 
             if comm.is_main_process():
                 pbar = tqdm(total=num_iter, desc="Memory update, #Batch")
-
             for _ in range(num_iter):
                 data = next(self._data_loader)
-                feature_dict, _ = self._ema_model(data)
+                feature_dict, _ = self._model(data)
                 self._memory(feature_dict=feature_dict)
 
                 if comm.is_main_process():

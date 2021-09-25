@@ -39,7 +39,7 @@ class AttentionLayerWoGP(nn.Module):
 
     def forward(self, x, temperature=1):
         scores = self.to_scores(x)
-        return F.softmax(scores / temperature, dim=-1)
+        return scores / temperature
 
 class DynamicCondConv(nn.Module):
     def __init__(self, nof_kernels, reduce, in_channels, out_channels, kernel_size,

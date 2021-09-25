@@ -179,6 +179,7 @@ class BankRPN(nn.Module):
         head: nn.Module,
         anchor_generator: nn.Module,
         anchor_matcher: Matcher,
+        feature_anchor_matcher: Matcher,
         box2box_transform: Box2BoxTransform,
         batch_size_per_image: int,
         positive_fraction: float,
@@ -228,6 +229,7 @@ class BankRPN(nn.Module):
         self.rpn_head = head
         self.anchor_generator = anchor_generator
         self.anchor_matcher = anchor_matcher
+        self.feature_anchor_matcher = feature_anchor_matcher
         self.box2box_transform = box2box_transform
         self.batch_size_per_image = batch_size_per_image
         self.positive_fraction = positive_fraction
@@ -267,6 +269,9 @@ class BankRPN(nn.Module):
 
         ret["anchor_generator"] = build_anchor_generator(cfg, [input_shape[f] for f in in_features])
         ret["anchor_matcher"] = Matcher(
+            cfg.MODEL.RPN.IOU_THRESHOLDS, cfg.MODEL.RPN.IOU_LABELS, allow_low_quality_matches=True
+        )
+        ret["feature_anchor_matcher"] = Matcher(
             cfg.MODEL.RETINANET.IOU_THRESHOLDS, cfg.MODEL.RPN.IOU_LABELS, allow_low_quality_matches=True
         )
         ret["head"] = build_rpn_head(cfg, [input_shape[f] for f in in_features])
@@ -297,7 +302,7 @@ class BankRPN(nn.Module):
     @torch.jit.unused
     @torch.no_grad()
     def label_and_sample_anchors(
-        self, anchors: List[Boxes], gt_instances: List[Instances]
+        self, anchors: List[Boxes], gt_instances: List[Instances], prepare_feature: bool
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Args:
@@ -324,6 +329,8 @@ class BankRPN(nn.Module):
         gt_labels = []
         matched_gt_boxes = []
         matched_gt_classes = []
+        matcher = self.feature_anchor_matcher if prepare_feature else self.anchor_matcher
+
         for image_size_i, gt_boxes_i, gt_classes_i in zip(image_sizes, gt_boxes, gt_classes):
             """
             image_size_i: (h, w) for the i-th image
@@ -331,7 +338,7 @@ class BankRPN(nn.Module):
             """
 
             match_quality_matrix = retry_if_cuda_oom(pairwise_iou)(gt_boxes_i, anchors)
-            matched_idxs, gt_labels_i = retry_if_cuda_oom(self.anchor_matcher)(match_quality_matrix)
+            matched_idxs, gt_labels_i = retry_if_cuda_oom(matcher)(match_quality_matrix)
             gt_class_i = gt_classes_i[matched_idxs]
             # Matching is memory-expensive and may result in CPU tensors. But the result is small
             gt_labels_i = gt_labels_i.to(device=gt_boxes_i.device)
@@ -465,7 +472,7 @@ class BankRPN(nn.Module):
         ]
 
         if gt_instances is not None:
-            gt_labels, gt_boxes, gt_class = self.label_and_sample_anchors(anchors, gt_instances)
+            gt_labels, gt_boxes, gt_class = self.label_and_sample_anchors(anchors, gt_instances, prepare_feature)
 
         if self.training and prepare_feature is False:
             assert gt_instances is not None, "RPN requires gt_instances in training!"
@@ -474,8 +481,19 @@ class BankRPN(nn.Module):
             )
         else:
             losses = {}
+
+        if prepare_feature:
+            gt_labels_whole = torch.stack(gt_labels)
+            st = 0
+            for p in pred_objectness_logits:
+                p.data = torch.zeros_like(p)
+                en = st + p.shape[1]
+                pos_mask = gt_labels_whole[:,st:en] == 1
+                p.data[pos_mask] = 1
+                st = en
+
         proposals = self.predict_proposals(
-            anchors, pred_objectness_logits, pred_anchor_deltas, images.image_sizes
+            anchors, pred_objectness_logits, pred_anchor_deltas, images.image_sizes, prepare_feature
         )
 
         if prepare_feature:
@@ -545,6 +563,7 @@ class BankRPN(nn.Module):
         pred_objectness_logits: List[torch.Tensor],
         pred_anchor_deltas: List[torch.Tensor],
         image_sizes: List[Tuple[int, int]],
+        prepare_feature: bool,
     ):
         """
         Decode all the predicted box regression deltas to proposals. Find the top proposals
@@ -559,6 +578,9 @@ class BankRPN(nn.Module):
         # This approach ignores the derivative w.r.t. the proposal boxes’ coordinates that
         # are also network responses.
         with torch.no_grad():
+            if prepare_feature:
+                for p in pred_anchor_deltas:
+                    p.data = torch.zeros_like(p)
             pred_proposals = self._decode_proposals(anchors, pred_anchor_deltas)
             return find_top_rpn_proposals(
                 pred_proposals,

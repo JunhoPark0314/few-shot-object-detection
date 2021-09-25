@@ -44,7 +44,7 @@ class LatentEncoder(nn.Module):
 		self.rpn_bbox_alphas = AttentionLayerWoGP(c_dim=rpn_out_channels, hidden_dim=max(1, rpn_out_channels // reduce), nof_kernels=self.nok)
 		self.roi_cls_alphas = AttentionLayerWoGP(c_dim=roi_shape, hidden_dim=max(1, roi_shape // reduce), nof_kernels=self.nok)
 		self.roi_bbox_alphas = AttentionLayerWoGP(c_dim=roi_shape, hidden_dim=max(1, roi_shape // reduce), nof_kernels=self.nok)
-		self.cont_loss = True
+		self.cont_loss = cfg.MODEL.ENCODER.CONT_LOSS
 	
 	
 	def forward(self, support_feature, device):
@@ -71,30 +71,45 @@ class LatentEncoder(nn.Module):
 			roi_scale = self.roi_scale(support_feature["roi"]["scale"].view(-1, 1))
 			roi_cls_weight, roi_bbox_weight = torch.chunk(roi_feature + roi_deltas + roi_scale, 2, dim=-1)
 			roi_cls_alphas = self.roi_cls_alphas(roi_cls_weight, temperature)
-			roi_bbox_alphas = self.roi_cls_alphas(roi_bbox_weight, temperature)
+			roi_bbox_alphas = self.roi_bbox_alphas(roi_bbox_weight, temperature)
+
+			storage = get_event_storage()
+			storage.put_scalar(
+				"encoder/temperature", temperature
+			)
 
 			if self.cont_loss:
-				def contrastive(x, temp):
-					eps = 1e-7
-					return (x / temp).exp() / ((x / temp).exp()+eps).sum(dim=1)
+				def cosine_sim(x, y):
+					normed_x = x / (x ** 2).sum(dim=1).sqrt().view(-1, 1)
+					normed_y = y / (y ** 2).sum(dim=1).sqrt().view(-1, 1)
+					return torch.mm(normed_x, normed_y.T)
 				
-				def cont_loss(x, gt, temp):
-					return -(contrastive(x, temp).log() * contrastive(gt, temp)).sum(dim=1).mean()
-					
+				def rank_loss(x, gt, t_p = 1, t_n = 1, gamma = 0.7):
+					pos_sim = x[gt.bool()]
+					neg_sim = x[~gt.bool()]
+
+					pos_Z = (pos_sim / t_p).exp().mean()
+					neg_Z = (neg_sim / t_n).exp().mean()
+
+					pos_agg = ((1 / pos_Z) * (pos_sim / t_p).exp() * pos_sim).mean()
+					neg_agg = ((1 / neg_Z) * (neg_sim / t_p).exp() * neg_sim).mean()
+
+					return torch.log(1 + (neg_agg - pos_agg + gamma).exp())
+
 				roi_cls_graph_gt = (roi_gt_class.view(1, -1) == roi_gt_class.view(-1, 1)).float()
 				rpn_cls_graph_gt = (rpn_gt_class.view(1, -1) == rpn_gt_class.view(-1, 1)).float()
-				roi_bbox_graph_gt = torch.mm(support_feature["roi"]["deltas"], support_feature["roi"]["deltas"].T)
-				rpn_bbox_graph_gt = torch.mm(support_feature["proposal"]["deltas"], support_feature["proposal"]["deltas"].T)
+				roi_bbox_graph_gt = cosine_sim(support_feature["roi"]["deltas"], support_feature["roi"]["deltas"]) > 0.5
+				rpn_bbox_graph_gt = cosine_sim(support_feature["proposal"]["deltas"], support_feature["proposal"]["deltas"]) > 0.5
 
-				roi_cls_graph = torch.mm(roi_cls_alphas, roi_cls_alphas.T)
-				rpn_cls_graph = torch.mm(rpn_cls_alphas, rpn_cls_alphas.T)
-				roi_bbox_graph = torch.mm(roi_bbox_alphas, roi_bbox_alphas.T)
-				rpn_bbox_graph = torch.mm(rpn_bbox_alphas, rpn_bbox_alphas.T)
+				roi_cls_graph = cosine_sim(roi_cls_alphas, roi_cls_alphas)
+				rpn_cls_graph = cosine_sim(rpn_cls_alphas, rpn_cls_alphas)
+				roi_bbox_graph = cosine_sim(roi_bbox_alphas, roi_bbox_alphas)
+				rpn_bbox_graph = cosine_sim(rpn_bbox_alphas, rpn_bbox_alphas)
 
-				roi_cls_loss = cont_loss(roi_cls_graph, roi_cls_graph_gt, 0.5)
-				rpn_cls_loss = cont_loss(rpn_cls_graph, rpn_cls_graph_gt, 0.5)
-				roi_bbox_loss = cont_loss(roi_bbox_graph, roi_bbox_graph_gt, 0.5)
-				rpn_bbox_loss = cont_loss(rpn_bbox_graph, rpn_bbox_graph_gt, 0.5)
+				roi_cls_loss = rank_loss(roi_cls_graph, roi_cls_graph_gt)
+				rpn_cls_loss = rank_loss(rpn_cls_graph, rpn_cls_graph_gt)
+				roi_bbox_loss = rank_loss(roi_bbox_graph, roi_bbox_graph_gt)
+				rpn_bbox_loss = rank_loss(rpn_bbox_graph, rpn_bbox_graph_gt)
 
 				loss = {
 					"roi_cls_grpah_loss": roi_cls_loss,
@@ -102,6 +117,34 @@ class LatentEncoder(nn.Module):
 					"roi_bbox_grpah_loss": roi_bbox_loss,
 					"rpn_bbox_grpah_loss": rpn_bbox_loss,
 				}
+
+				storage.put_histogram(
+					"encoder/rpn_cls_alphas_pos", rpn_cls_graph[rpn_cls_graph_gt.bool()]
+				)
+				storage.put_histogram(
+					"encoder/rpn_cls_alphas_neg", rpn_cls_graph[~rpn_cls_graph_gt.bool()]
+				)
+
+				storage.put_histogram(
+					"encoder/roi_cls_alphas_pos", roi_cls_graph[roi_cls_graph_gt.bool()]
+				)
+				storage.put_histogram(
+					"encoder/roi_cls_alphas_neg", roi_cls_graph[~roi_cls_graph_gt.bool()]
+				)
+
+				storage.put_histogram(
+					"encoder/rpn_bbox_alphas_pos", rpn_bbox_graph[rpn_bbox_graph_gt.bool()]
+				)
+				storage.put_histogram(
+					"encoder/rpn_bbox_alphas_neg", rpn_bbox_graph[~rpn_bbox_graph_gt.bool()]
+				)
+
+				storage.put_histogram(
+					"encoder/roi_bbox_alphas_pos", roi_bbox_graph[roi_bbox_graph_gt.bool()]
+				)
+				storage.put_histogram(
+					"encoder/roi_bbox_alphas_neg", roi_bbox_graph[~roi_bbox_graph_gt.bool()]
+				)
 
 			per_class_alphas = []
 			for cid in support_gt_class:
@@ -112,12 +155,6 @@ class LatentEncoder(nn.Module):
 			rpn_bbox_alphas = rpn_bbox_alphas.mean(dim=0)
 			roi_cls_alphas = torch.cat(per_class_alphas)
 			roi_bbox_alphas = roi_bbox_alphas.mean(dim=0).view(1, -1)
-
-			storage = get_event_storage()
-			storage.put_scalar(
-				"temperature", temperature
-			)
-
 		else:
 			rpn_cls_alphas = torch.ones(self.nok, device=device) / self.nok
 			rpn_bbox_alphas = torch.ones(self.nok, device=device) / self.nok
@@ -125,7 +162,7 @@ class LatentEncoder(nn.Module):
 			roi_bbox_alphas = torch.ones((1,self.nok), device=device) / self.nok
 		
 		latent_vector = {
-			"proposal": [rpn_cls_alphas, rpn_bbox_alphas],
-			"roi": [roi_cls_alphas, roi_bbox_alphas]
+			"proposal": [rpn_cls_alphas.sigmoid(), rpn_bbox_alphas.sigmoid()],
+			"roi": [roi_cls_alphas.sigmoid(), roi_bbox_alphas.sigmoid()]
 		}
 		return latent_vector, support_gt_class, loss
