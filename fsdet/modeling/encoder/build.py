@@ -49,7 +49,12 @@ class LatentEncoder(nn.Module):
 	
 	def forward(self, support_feature, device):
 		support_gt_class = None
-		curr_iter = get_event_storage().iter
+
+		if support_feature is not None:
+			curr_iter = get_event_storage().iter
+		else:
+			curr_iter = self.max_iter
+
 		progress = (self.max_iter - curr_iter) / self.max_iter
 		temperature = max(1, self.temperature * progress)
 		loss = {}

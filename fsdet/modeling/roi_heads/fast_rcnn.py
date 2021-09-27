@@ -637,16 +637,17 @@ class BankRCNNOutputs(object):
         num_accurate = (pred_classes == self.gt_classes).nonzero().numel()
         fg_num_accurate = (fg_pred_classes == fg_gt_classes).nonzero().numel()
 
-        storage = get_event_storage()
-        storage.put_scalar(
-            "fast_rcnn/cls_accuracy", num_accurate / num_instances
-        )
-        storage.put_histogram(
-            "fast_rcnn/pos_hist", self.pred_class_logits.sigmoid()[gt_mask]
-        )
-        storage.put_histogram(
-            "fast_rcnn/neg_hist", self.pred_class_logits.sigmoid()[~gt_mask]
-        )
+        if gt_mask.sum():
+            storage = get_event_storage()
+            storage.put_scalar(
+                "fast_rcnn/cls_accuracy", num_accurate / num_instances
+            )
+            storage.put_histogram(
+                "fast_rcnn/pos_hist", self.pred_class_logits.sigmoid()[gt_mask]
+            )
+            storage.put_histogram(
+                "fast_rcnn/neg_hist", self.pred_class_logits.sigmoid()[~gt_mask]
+            )
         if num_fg > 0:
             storage.put_scalar(
                 "fast_rcnn/fg_cls_accuracy", fg_num_accurate / num_fg

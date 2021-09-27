@@ -933,9 +933,9 @@ class DefaultBankTrainer(BankTrainer):
 		mapping = meta.reverse_map
 		keepclass = meta.thing_classes
 		self.memory = self.build_memory(cfg, mapping, keepclass, backbone_dim)
-		get_event_storage().iter = cfg.SOLVER.MAX_ITER
 
 		results = OrderedDict()
+		props = OrderedDict()
 		for idx, dataset_name in enumerate(cfg.DATASETS.CONDITION):
 			data_loader = self.build_condition_loader(cfg, dataset_name)
 			condition_on_dataset(self.ema_model, data_loader, self.memory)
@@ -949,6 +949,7 @@ class DefaultBankTrainer(BankTrainer):
 			else:
 				try:
 					evaluator = self.build_evaluator(cfg, dataset_name)
+					prop_evaluator = self.build_evaluator(cfg, dataset_name, prop=True)
 				except NotImplementedError:
 					logger.warn(
 						"No evaluator found. Use `DefaultTrainer.test(evaluators=)`, "
@@ -956,28 +957,39 @@ class DefaultBankTrainer(BankTrainer):
 					)
 					results[dataset_name] = {}
 					continue
+			support_dict = {
+				"base": torch.tensor([meta.reverse_map[k]-1 for k in meta.base_classes]),
+				"novel":torch.tensor([meta.reverse_map[k]-1 for k in meta.novel_classes]),
+				"all": torch.arange(end=len(keepclass)),
+			}
+			for support_key, support_class in support_dict.items():
+				feature_dict = self.memory(gt_class=support_class, sample_rate=1.0)
 
-			feature_dict = self.memory(gt_class=torch.arange(end=len(keepclass)), sample_rate=1.0)
+				meta = MetadataCatalog.get(dataset_name)
+				meta.input_format = cfg.INPUT.FORMAT
+				writer = TensorboardXWriter(cfg.OUTPUT_DIR)
 
-			meta = MetadataCatalog.get(dataset_name)
-			meta.input_format = cfg.INPUT.FORMAT
-			writer = TensorboardXWriter(cfg.OUTPUT_DIR)
-
-			results_i = meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, meta, writer)
-			results[dataset_name] = results_i
-			if comm.is_main_process():
-				assert isinstance(
-					results_i, dict
-				), "Evaluator must return a dict on the main process. Got {} instead.".format(
-					results_i
-				)
-				logger.info(
-					"Evaluation results for {} in csv format:".format(
-						dataset_name
+				results_i, prop_i = meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, prop_evaluator, meta, writer)
+				results[dataset_name] = results_i
+				props[dataset_name] = prop_i
+				if comm.is_main_process():
+					assert isinstance(
+						results_i, dict
+					), "Evaluator must return a dict on the main process. Got {} instead.".format(
+						results_i
 					)
-				)
-				print_csv_format(results_i)
+					logger.info(
+						"Evaluation results for {} in csv format:".format(
+							dataset_name
+						)
+					)
+					logger.info("support_key: {}".format(support_key))
+					print_csv_format(results_i)
+					print_csv_format(prop_i)
 
 		if len(results) == 1:
 			results = list(results.values())[0]
-		return results
+		if len(props) == 1:
+			props = list(props.values())[0]
+
+		return results, props

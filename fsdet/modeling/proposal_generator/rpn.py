@@ -492,6 +492,15 @@ class BankRPN(nn.Module):
                 p.data[pos_mask] = 1
                 st = en
 
+            for anchor_per_lvl, pred_per_lvl in zip(anchors, pred_objectness_logits):
+                eps = 1e-6
+                m_list = []
+                for gt in gt_instances:
+                    m = pairwise_iou(anchor_per_lvl, gt.gt_boxes).max(dim=1)[0].view(1, -1)
+                    m_list.append(m)
+                m_list = torch.cat(m_list)
+                pred_per_lvl.data = torch.log((m_list + eps) / (1 - m_list + eps))
+
         proposals = self.predict_proposals(
             anchors, pred_objectness_logits, pred_anchor_deltas, images.image_sizes, prepare_feature
         )
