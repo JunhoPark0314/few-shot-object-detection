@@ -82,16 +82,20 @@ class LatentEncoder(nn.Module):
 				def cosine_sim(x, y):
 					normed_x = x / (x ** 2).sum(dim=1).sqrt().view(-1, 1)
 					normed_y = y / (y ** 2).sum(dim=1).sqrt().view(-1, 1)
-					return torch.mm(normed_x, normed_y.T)
+					return (torch.mm(normed_x, normed_y.T) + 1) / 2
 				
-				def rank_loss(x, gt, t_p = 1, t_n = 1, gamma = 0.7):
+				def rank_loss(x, gt, t_p = 1, t_n = 1, gamma = 0.7, hard_sample=True):
 					pos_sim = x[gt.bool()]
 					neg_sim = x[~gt.bool()]
 
-					pos_Z = (pos_sim / t_p).exp().mean()
+					if hard_sample:
+						pos_sim = pos_sim.sort()[0][:int(len(pos_sim) * 0.7)]
+						neg_sim = neg_sim.sort()[0][int(len(neg_sim) * 0.3):]
+
+					pos_Z = (-pos_sim / t_p).exp().mean()
 					neg_Z = (neg_sim / t_n).exp().mean()
 
-					pos_agg = ((1 / pos_Z) * (pos_sim / t_p).exp() * pos_sim).mean()
+					pos_agg = ((1 / pos_Z) * (-pos_sim / t_p).exp() * pos_sim).mean()
 					neg_agg = ((1 / neg_Z) * (neg_sim / t_p).exp() * neg_sim).mean()
 
 					return torch.log(1 + (neg_agg - pos_agg + gamma).exp())
