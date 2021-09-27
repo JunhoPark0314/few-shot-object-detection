@@ -49,7 +49,12 @@ class LatentEncoder(nn.Module):
 	
 	def forward(self, support_feature, device):
 		support_gt_class = None
-		curr_iter = get_event_storage().iter
+
+		if support_feature is not None:
+			curr_iter = get_event_storage().iter
+		else:
+			curr_iter = self.max_iter
+
 		progress = (self.max_iter - curr_iter) / self.max_iter
 		temperature = max(1, self.temperature * progress)
 		loss = {}
@@ -87,6 +92,9 @@ class LatentEncoder(nn.Module):
 				def rank_loss(x, gt, t_p = 1, t_n = 1, gamma = 0.7):
 					pos_sim = x[gt.bool()]
 					neg_sim = x[~gt.bool()]
+
+					pos_sim = pos_sim.sort()[0][:int(len(pos_sim) * 0.7)]
+					neg_sim = neg_sim.sort()[0][int(len(neg_sim) * 0.3):]
 
 					pos_Z = (pos_sim / t_p).exp().mean()
 					neg_Z = (neg_sim / t_n).exp().mean()

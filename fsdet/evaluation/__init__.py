@@ -3,6 +3,6 @@ from .evaluator import DatasetEvaluator, DatasetEvaluators, inference_context, i
 from .lvis_evaluation import LVISEvaluator
 from .pascal_voc_evaluation import PascalVOCDetectionEvaluator
 from .testing import print_csv_format, verify_results
-from .coco_like_voc_evaluation import COCOLIKE_VOC_Evaluator
+from .coco_like_voc_evaluation import DefaultCOCOEvaluator
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]

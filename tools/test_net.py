@@ -31,10 +31,7 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.data import MetadataCatalog
 from detectron2.engine import hooks, launch
 from fsdet.evaluation import (
-    COCOEvaluator, DatasetEvaluators, LVISEvaluator, PascalVOCDetectionEvaluator, COCOLIKE_VOC_Evaluator, verify_results)
-
-from detectron2.evaluation import COCOEvaluator as DefaultCOCOEvaluator
-
+    COCOEvaluator, DatasetEvaluators, LVISEvaluator, PascalVOCDetectionEvaluator, DefaultCOCOEvaluator, verify_results)
 import copy
 
 class Trainer(DefaultTrainer):
@@ -63,8 +60,6 @@ class Trainer(DefaultTrainer):
             )
         if evaluator_type == "pascal_voc":
             return PascalVOCDetectionEvaluator(dataset_name)
-        if evaluator_type == "cocolike_voc":
-            return COCOLIKE_VOC_Evaluator(dataset_name)
         if evaluator_type == "lvis":
             return LVISEvaluator(dataset_name, cfg, True, output_folder)
         if len(evaluator_list) == 0:
@@ -86,7 +81,7 @@ class MetaTrainer(DefaultBankTrainer):
     """
 
     @classmethod
-    def build_evaluator(cls, cfg, dataset_name, output_folder=None):
+    def build_evaluator(cls, cfg, dataset_name, output_folder=None, prop=False):
         """
         Create evaluator(s) for a given dataset.
         This uses the special metadata "evaluator_type" associated with each builtin dataset.
@@ -104,7 +99,7 @@ class MetaTrainer(DefaultBankTrainer):
         if evaluator_type == "pascal_voc":
             return PascalVOCDetectionEvaluator(dataset_name)
         if evaluator_type == "cocolike_voc":
-            return DefaultCOCOEvaluator(dataset_name, cfg, True, output_folder)
+            return DefaultCOCOEvaluator(dataset_name, cfg, True, output_folder, prop=prop)
         if evaluator_type == "lvis":
             return LVISEvaluator(dataset_name, cfg, True, output_folder)
         if len(evaluator_list) == 0:

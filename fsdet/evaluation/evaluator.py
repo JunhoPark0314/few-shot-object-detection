@@ -180,7 +180,7 @@ def log_prediction(inputs, outputs, meta, idx):
 	storage.iter = pred_iter
 
 
-def meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, meta, writer):
+def meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, prop_evaluator, meta, writer):
 	"""
 	Run model on the data_loader and evaluate the metrics with evaluator.
 	The model will be used in eval mode.
@@ -206,6 +206,7 @@ def meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, meta,
 
 	total = len(data_loader)  # inference data loader must have a fixed length
 	evaluator.reset()
+	prop_evaluator.reset()
 
 	logging_interval = 50
 	num_warmup = min(5, logging_interval - 1, total - 1)
@@ -218,13 +219,14 @@ def meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, meta,
 				total_compute_time = 0
 
 			start_compute_time = time.time()
-			outputs = model(inputs, feature_dict)
+			outputs, prop = model(inputs, feature_dict)
 			if idx % 50 == 0:
 				log_prediction(inputs, outputs, meta, idx)
 				writer.write()
 			torch.cuda.synchronize()
 			total_compute_time += time.time() - start_compute_time
 			evaluator.process(inputs, outputs)
+			prop_evaluator.process(inputs, prop)
 
 			if (idx + 1) % logging_interval == 0:
 				duration = time.time() - start_time
@@ -237,6 +239,7 @@ def meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, meta,
 						idx + 1, total, seconds_per_img, str(eta)
 					)
 				)
+				#break
 
 	# Measure the time only for this worker (before the synchronization barrier)
 	total_time = int(time.time() - start_time)
@@ -255,11 +258,12 @@ def meta_inference_on_dataset(model, feature_dict, data_loader, evaluator, meta,
 	)
 
 	results = evaluator.evaluate()
+	prop_results = prop_evaluator.evaluate()
 	# An evaluator may return None when not in main process.
 	# Replace it by an empty dict instead to make it easier for downstream code to handle
 	if results is None:
 		results = {}
-	return results
+	return results, prop_results
 
 
 def inference_on_dataset(model, data_loader, evaluator):

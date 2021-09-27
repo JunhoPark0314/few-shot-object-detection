@@ -162,17 +162,22 @@ class BankRCNN(nn.Module):
 
         images = self.preprocess_image(batched_inputs)
         features = self.backbone(images.tensor)
+        gt_instances = None
+        if "instances" in batched_inputs[0]:
+            gt_instances = [
+                x["instances"].to(self.device) for x in batched_inputs
+            ]
 
         if detected_instances is None:
             if self.proposal_generator:
-                proposals, _, _ = self.proposal_generator(images, features, None, latent["proposal"])
+                proposals, _, _ = self.proposal_generator(images, features, gt_instances, latent["proposal"])
             else:
                 assert "proposals" in batched_inputs[0]
                 proposals = [
                     x["proposals"].to(self.device) for x in batched_inputs
                 ]
 
-            results, _, _ = self.roi_heads(images, features, proposals, None, latent["roi"], support_gt_class)
+            results, _, _ = self.roi_heads(images, features, proposals, gt_instances, latent["roi"], support_gt_class)
         else:
             detected_instances = [
                 x.to(self.device) for x in detected_instances
@@ -190,7 +195,17 @@ class BankRCNN(nn.Module):
                 width = input_per_image.get("width", image_size[1])
                 r = detector_postprocess(results_per_image, height, width)
                 processed_results.append({"instances": r})
-            return processed_results
+
+            processed_proposals = []
+            for proposals_per_image, input_per_image, image_size in zip(
+                proposals, batched_inputs, images.image_sizes
+            ):
+                height = input_per_image.get("height", image_size[0])
+                width = input_per_image.get("width", image_size[1])
+                r = detector_postprocess(proposals_per_image, height, width)
+                processed_proposals.append({"proposals": r})
+            
+            return processed_results, processed_proposals
         else:
             return results
 
